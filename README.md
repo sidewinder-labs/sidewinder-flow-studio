@@ -169,7 +169,8 @@ not from the failed node. Make writes idempotent before enabling retries:
 duplicate rows. Nodes that already succeeded before the failure will run again.
 
 **Metadata defaults to SQLite** (single writer). Set `METADATA_DB_URL` to
-PostgreSQL for anything beyond single-user use.
+PostgreSQL for anything beyond single-user use, e.g.
+`postgresql+psycopg://user:pass@host:5432/flowstudio` in `.env`.
 
 ## Status & roadmap
 

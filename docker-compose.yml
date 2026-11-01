@@ -19,9 +19,9 @@ services:
       REPORTS_DIR: "/data/reports_data"
       PERSIST_DB: "/data/reports_data/persist.duckdb"
       REPORTS_URL: "http://localhost:${REPORTS_PORT:-8501}"
-      METADATA_DB_URL: "sqlite+aiosqlite:////data/flow_studio.db"
-      # Optional: point to a real Postgres for metadata instead of SQLite
-      # METADATA_DB_URL: "postgresql+asyncpg://user:pass@postgres:5432/flowstudio"
+      # SQLite by default; set METADATA_DB_URL in .env to use PostgreSQL,
+      # e.g. postgresql+psycopg://user:pass@postgres:5432/flowstudio
+      METADATA_DB_URL: "${METADATA_DB_URL:-sqlite+aiosqlite:////data/flow_studio.db}"
     volumes:
       - flow_data:/data                    # persists projects, cache, DB
     # Makes host.docker.internal resolve to the host machine on Linux
