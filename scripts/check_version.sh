@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Verify the version strings agree. Run before tagging a release.
-# The desktop app (Tauri) needs three-part versions: 1.29 is written 1.29.0 there.
+# The desktop app (Tauri) needs three-part versions: 1.29 is written 1.29.0 there;
+# a patch release (1.32.1) is written the same everywhere.
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -14,7 +15,9 @@ ct=$(grep -m1 '^version' "$root/desktop/src-tauri/Cargo.toml"       | grep -oE '
 printf 'pyproject.toml    %s\napp_factory.py    %s\npackage.json      %s\nAboutDialog.tsx   %s\ntauri.conf.json   %s\nCargo.toml        %s\n' \
   "$py" "$af" "$pk" "$ab" "$tc" "$ct"
 
-if [ "$py" = "$af" ] && [ "$py" = "$pk" ] && [ "$py" = "$ab" ] && [ "$py.0" = "$tc" ] && [ "$py.0" = "$ct" ]; then
+case "$py" in *.*.*) three="$py" ;; *) three="$py.0" ;; esac
+
+if [ "$py" = "$af" ] && [ "$py" = "$pk" ] && [ "$py" = "$ab" ] && [ "$three" = "$tc" ] && [ "$three" = "$ct" ]; then
   echo "✓ all match ($py)"
 else
   echo "✗ MISMATCH — fix before tagging"; exit 1

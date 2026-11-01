@@ -3318,7 +3318,7 @@ dependencies = [
 
 [[package]]
 name = "sfs-desktop"
-version = "1.32.0"
+version = "1.32.1"
 dependencies = [
  "libc",
  "serde_json",
