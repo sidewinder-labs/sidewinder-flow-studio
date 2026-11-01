@@ -801,8 +801,8 @@ def exec_duckdb_processor(sql: str, frame_paths: list[str] | None = None,
             attached.append(name)
             con.register(name, _duckdb_scan(path))
 
-        from app.core.duckdb_arrow import result_to_arrow
-        return result_to_arrow(con.execute(sql))   # Arrow, straight to cache
+        from app.core.duckdb_arrow import query_to_arrow
+        return query_to_arrow(con, sql)            # Arrow, straight to cache
     finally:
         con.close()
 

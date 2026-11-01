@@ -124,8 +124,8 @@ def load_persist(table_name: str) -> pa.Table:
     tbl = sanitize_table(table_name)
     con = duckdb.connect(_persist_db(), read_only=True)
     try:
-        from app.core.duckdb_arrow import result_to_arrow
-        return result_to_arrow(con.execute(f'SELECT * FROM "{tbl}"'))
+        from app.core.duckdb_arrow import query_to_arrow
+        return query_to_arrow(con, f'SELECT * FROM "{tbl}"')
     finally:
         con.close()
 
