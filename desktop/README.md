@@ -3,10 +3,12 @@
 The installable, single-user edition of Sidewinder Flow Studio: no Docker, no
 terminal, no Python install. Same repository and code as the server edition.
 
-**Status: Phase 3.** Built for Linux and Windows in CI (macOS paused, see
-below), with self-updates, code signing (switched on by repository secrets, see
-"Releases and signing") and a first-run welcome screen. The download page comes
-next.
+**Status: released (1.32).** Linux and Windows installers are built in CI and
+published on GitHub Releases, with self-updates, code signing (switched on by
+repository secrets, see "Releases and signing") and a first-run welcome screen.
+macOS is paused, see below. Download page:
+[sidewinderlabs.dev/download](https://sidewinderlabs.dev/download/), which reads
+the latest release's `latest.json`, so publishing a release updates it.
 
 ## How it works
 

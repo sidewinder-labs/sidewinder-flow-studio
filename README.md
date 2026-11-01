@@ -66,7 +66,11 @@ libraries (PyCaret, scikit-learn…) never disturb the ETL environment
 
 ## Quick start
 
-**Docker (recommended):**
+**Desktop app (Windows, Linux):** just for you, on one computer? Download the
+installer from [sidewinderlabs.dev/download](https://sidewinderlabs.dev/download/):
+no Docker or Python needed. See [desktop/README.md](desktop/README.md).
+
+**Docker (recommended for servers and teams):**
 
 ```bash
 git clone https://github.com/sidewinder-labs/sidewinder-flow-studio.git
@@ -173,7 +177,7 @@ Working today: everything in Features above, including the plugin system with
 isolated runtimes.
 
 Planned: auth/SSO and RBAC, worker-queue scaling, resume-from-failed-node, a
-semantic catalog exposed over MCP, and a desktop build.
+semantic catalog exposed over MCP, and the desktop app on macOS.
 
 [EDITIONS.md](EDITIONS.md) maps every capability to its edition and implementation
 status. Everything in this repository is open core, including the SQL and Ibis
