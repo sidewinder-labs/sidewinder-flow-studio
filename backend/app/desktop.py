@@ -120,6 +120,20 @@ def _log_to_stderr() -> None:
         faulthandler.dump_traceback_later(int(os.environ["SFS_STACK_DUMP_SECONDS"]), repeat=True, file=sys.stderr)
 
 
+def _load_native_libraries() -> None:
+    """Load SciPy's compiled BLAS/LAPACK on the main thread before serving.
+
+    Node code runs in worker threads, and on Windows the first load of
+    SciPy's OpenBLAS DLL from a worker thread never returns (seen in the
+    frozen build: stuck in create_module for scipy.linalg._fblas). NumPy's
+    copy is already loaded here, through pandas. Loading SciPy's now costs a
+    fraction of a second and makes `import scipy.stats` in a node safe."""
+    try:
+        import scipy.linalg  # noqa: F401
+    except ImportError:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sfs-backend", description="SFS desktop backend")
     parser.add_argument("--data-dir", required=True, type=Path, help="app data directory")
@@ -131,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     # Settings are read when app.core.config is imported, so set them first.
     os.environ.update(desktop_environment(args.data_dir))
     _log_to_stderr()
+    _load_native_libraries()
 
     import asyncio
 
