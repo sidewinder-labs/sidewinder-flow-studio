@@ -42,6 +42,27 @@ async def lifespan(app: FastAPI):
     stop_scheduler()
 
 
+HEALTH_PATH = "/api/health"
+
+
+class _DropPath:
+    """Logging filter: drop uvicorn access lines for one path."""
+    def __init__(self, path: str):
+        self.needle = f'"GET {path} '
+
+    def filter(self, record) -> bool:
+        return self.needle not in record.getMessage()
+
+
+def _quiet_access_log(path: str) -> None:
+    """Container healthchecks call the health endpoint every few seconds; an
+    access line for each would bury everything else in `docker logs`."""
+    import logging
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _DropPath) for f in access.filters):
+        access.addFilter(_DropPath(path))
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Sidewinder Flow Studio API",
@@ -68,6 +89,11 @@ def create_app() -> FastAPI:
     app.include_router(capabilities.router, prefix="/api/capabilities", tags=["capabilities"])
     app.include_router(explore.router,     prefix="/api/explore",     tags=["explore"])
     app.include_router(ws.router,          prefix="/ws",              tags=["websocket"])
+    @app.get(HEALTH_PATH, include_in_schema=False)
+    async def health():
+        return {"status": "ok"}
+    _quiet_access_log(HEALTH_PATH)
+
     if os.getenv("SFS_DESKTOP") == "1":
         from app.api import desktop
         app.include_router(desktop.router, prefix="/api/desktop",     tags=["desktop"])
