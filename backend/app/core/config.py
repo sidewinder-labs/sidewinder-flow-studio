@@ -1,6 +1,6 @@
 import os
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 
@@ -48,11 +48,12 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
-    class Config:
-        # The desktop edition points this at its data directory, so a .env in
-        # whatever folder the app was launched from is never read.
-        env_file = os.getenv("SFS_ENV_FILE", ".env")
-        env_file_encoding = "utf-8"
+    # The desktop edition points SFS_ENV_FILE at its data directory, so a .env
+    # in whatever folder the app was launched from is never read.
+    model_config = SettingsConfigDict(
+        env_file=os.getenv("SFS_ENV_FILE", ".env"),
+        env_file_encoding="utf-8",
+    )
 
 
 settings = Settings()
