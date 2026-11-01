@@ -20,6 +20,7 @@ that compares timestamps with epoch-millisecond integers and fails.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import threading
@@ -44,7 +45,22 @@ def _load():
                 path = os.path.join(os.path.dirname(gw_dsl_parser.__file__), "dsl_parser.wasm")
                 _engine = Engine()
                 _module = Module.from_file(_engine, path)
+                atexit.register(_close)
     return _engine, _module
+
+
+def _close():
+    """Free the WASM module and engine while wasmtime still works. Left to the
+    garbage collector, they are freed during interpreter teardown, after
+    wasmtime's own globals are gone, and each prints "Exception ignored in
+    Managed.__del__" to the log."""
+    global _module, _engine
+    for obj in (_module, _engine):
+        try:
+            obj.close()
+        except Exception:                                  # noqa: BLE001
+            pass
+    _module = _engine = None
 
 
 def field_meta(fields: list[dict], relation: str = RELATION) -> dict:
