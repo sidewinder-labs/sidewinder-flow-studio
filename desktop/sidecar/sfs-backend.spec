@@ -80,6 +80,10 @@ a = Analysis(
     excludes=["tkinter", "pytest", "IPython", "jupyter", "notebook", "streamlit"],
     noarchive=False,
 )
+# Test suites that packages ship as data are dead weight, and some paths in
+# them are too long for Windows: ibis's snapshot files run past 260 characters,
+# which makensis can't open.
+a.datas = [entry for entry in a.datas if "tests" not in Path(entry[0]).parts]
 pyz = PYZ(a.pure)
 # macOS release builds: SFS_CODESIGN_IDENTITY (a Developer ID Application
 # identity in the keychain) signs the executable and every collected binary
