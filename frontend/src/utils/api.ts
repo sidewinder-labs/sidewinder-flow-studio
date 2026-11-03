@@ -3,6 +3,15 @@ import type { Project, Connection, Variable, AgentProvider, RunRow,
 
 const BASE = '/api'
 
+/** What deleting a project, or one of its flows, would affect. */
+export interface DeletePreview {
+  flows: { id: string; name: string; scheduled: boolean }[]
+  persisted_tables: string[]
+  running: boolean
+}
+
+export interface TrashedProject { id: string; name: string; deleted_at: string | null; flows: number }
+
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -24,7 +33,13 @@ export const api = {
       req<Project>('/projects/', { method: 'POST', body: JSON.stringify({ name, description }) }),
     save: (id: string, payload: object) =>
       req<Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
-    delete: (id: string) => req<void>(`/projects/${id}`, { method: 'DELETE' }),
+    delete: (id: string, dropPersisted = false) =>
+      req<{ dropped_tables: string[] }>(`/projects/${id}?drop_persisted=${dropPersisted}`, { method: 'DELETE' }),
+    deletePreview: (id: string, flowId?: string) =>
+      req<DeletePreview>(`/projects/${id}/delete-preview${flowId ? `?flow_id=${encodeURIComponent(flowId)}` : ''}`),
+    trash:   () => req<TrashedProject[]>('/projects/trash/'),
+    restore: (id: string) => req<Project>(`/projects/trash/${id}/restore`, { method: 'POST' }),
+    purge:   (id: string) => req<void>(`/projects/trash/${id}`, { method: 'DELETE' }),
     fromExample: (example: string, name?: string) =>
       req<Project>('/projects/from-example', { method: 'POST', body: JSON.stringify({ example, name }) }),
   },

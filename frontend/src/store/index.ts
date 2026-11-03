@@ -83,12 +83,12 @@ interface AppState {
   closeProject: () => void
   createProject: (name: string, description?: string) => Promise<void>
   saveProject: () => Promise<void>
-  deleteProject: (id: string) => Promise<void>
+  deleteProject: (id: string, dropPersisted?: boolean) => Promise<void>
 
   activeFlow: () => FlowMeta | null
   setActiveFlow: (id: string) => void
   addFlow: () => void
-  deleteFlow: (id: string) => void
+  deleteFlow: (id: string, dropPersisted?: boolean) => Promise<void>
   toggleFlowActive: (id: string) => void
   renameFlow: (flowId: string, name: string) => void
 
@@ -180,8 +180,8 @@ export const useStore = create<AppState>((set, get) => ({
     await api.projects.save(activeProject.id, { flows: activeProject.flows, name: activeProject.name })
   },
 
-  deleteProject: async (id) => {
-    await api.projects.delete(id)
+  deleteProject: async (id, dropPersisted = false) => {
+    await api.projects.delete(id, dropPersisted)
     const { activeProject } = get()
     set((s) => ({
       projects: s.projects.filter((p) => p.id !== id),
@@ -221,14 +221,18 @@ export const useStore = create<AppState>((set, get) => ({
     })
   },
 
-  deleteFlow: (id) => {
-    set((s) => {
-      if (!s.activeProject) return {}
-      const flows = s.activeProject.flows.filter((f) => f.id !== id)
-      return {
-        activeProject: { ...s.activeProject, flows },
-        activeFlowId: s.activeFlowId === id ? (flows[0]?.id ?? null) : s.activeFlowId,
-      }
+  // Saved straight away, so the backend stops the flow's schedule and removes
+  // its cached frames now (the canvas keeps the store's flows up to date).
+  deleteFlow: async (id, dropPersisted = false) => {
+    const { activeProject, activeFlowId } = get()
+    if (!activeProject) return
+    const flows = activeProject.flows.filter((f) => f.id !== id)
+    await api.projects.save(activeProject.id, {
+      flows, name: activeProject.name, drop_persisted: dropPersisted,
+    })
+    set({
+      activeProject: { ...activeProject, flows },
+      activeFlowId: activeFlowId === id ? (flows[0]?.id ?? null) : activeFlowId,
     })
   },
 

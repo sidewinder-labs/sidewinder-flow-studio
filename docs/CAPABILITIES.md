@@ -401,6 +401,18 @@ On the **Trigger** node, switch Run Mode to **Schedule** and set a cron expressi
 - **Calendar rules** — weekdays-only, and a skip-dates list for holidays
 - **Run history / audit** — every run and retry recorded, visible in **Meta → Runs** (status, trigger, attempt, duration, node counts, errors)
 
+A schedule runs only while its flow is **active** (the dot on the flow tab). Schedules are loaded when the backend starts, so they survive restarts.
+
+---
+
+## Deleting projects and flows
+
+- **Delete a project** from the project picker (hover a project, click the bin) and type its name to confirm. It moves to the **Trash** (bottom of the picker), where it can be restored or deleted permanently. Restored flows come back **turned off**, so no schedule starts firing until you turn it on again.
+- **Delete a flow** with the × on its tab. The project is saved straight away.
+- Either way, the deleted flows' schedules stop and their cached node outputs are removed (running again recreates them). Run history is kept.
+- **Persisted tables** (local DuckDB) are kept unless you tick *Also delete persisted tables*. Only tables no other flow persists to are offered; tables persisted to a database connection are never touched.
+- Deleting is refused while a flow that would be deleted is running.
+
 ---
 
 ## Worked example: warehouse-to-warehouse transfer

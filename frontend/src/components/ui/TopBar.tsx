@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
-import { Play, Save, Plus, FolderOpen, ChevronDown, Square, RefreshCw, Compass, BookOpen } from 'lucide-react'
+import { Play, Save, Plus, FolderOpen, ChevronDown, Square, RefreshCw, Compass, BookOpen, Trash2, RotateCcw, ArrowLeft } from 'lucide-react'
 import { useStore } from '@/store'
-import { api } from '@/utils/api'
+import { api, type TrashedProject } from '@/utils/api'
 import { AboutDialog } from './AboutDialog'
+import { DeleteDialog } from './DeleteDialog'
 
 export function TopBar() {
   const {
     projects, activeProject, activeFlowId, running,
-    loadProjects, openProject, closeProject, createProject,
+    loadProjects, openProject, closeProject, createProject, deleteProject,
     saveProject, runFlow, clearExecState,
     addFlow, deleteFlow, toggleFlowActive, setActiveFlow,
     renameFlow, activeFlow,
@@ -25,6 +26,23 @@ export function TopBar() {
 
   const flow = activeFlow()
 
+  // Delete confirmation (project or flow), and the Trash view of the picker
+  const [deleting, setDeleting] = useState<
+    { kind: 'project' | 'flow'; projectId: string; flowId?: string; name: string } | null>(null)
+  const [trash, setTrash] = useState<TrashedProject[] | null>(null)
+  const [purging, setPurging] = useState<string | null>(null)
+  const openTrash = () => api.projects.trash().then(setTrash).catch(() => setTrash([]))
+  const restore = async (id: string) => {
+    await api.projects.restore(id)
+    await Promise.all([loadProjects(), openTrash()])
+  }
+  const purge = async (id: string) => {
+    if (purging !== id) { setPurging(id); return }          // second click confirms
+    setPurging(null)
+    await api.projects.purge(id)
+    await openTrash()
+  }
+
   const handleCreate = async () => {
     if (!newName.trim()) return
     await createProject(newName.trim())
@@ -36,6 +54,7 @@ export function TopBar() {
   const [examples, setExamples] = useState<{ name: string; description: string }[]>([])
   const handleOpen = async () => {
     await loadProjects()
+    setTrash(null)
     setShowProjects(true)
     api.capabilities().then((c) => setExamples(c?.examples ?? [])).catch(() => {})
   }
@@ -98,6 +117,16 @@ export function TopBar() {
       </div>
 
       {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
+      {deleting && (
+        <DeleteDialog
+          {...deleting}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (dropPersisted) => {
+            if (deleting.kind === 'project') await deleteProject(deleting.projectId, dropPersisted)
+            else await deleteFlow(deleting.flowId!, dropPersisted)
+          }}
+        />
+      )}
 
       {/* Project picker */}
       <div className="relative shrink-0 project-picker">
@@ -127,6 +156,42 @@ export function TopBar() {
                 </button>
               </div>
             </div>
+            {trash !== null ? (
+              <div>
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-canvas-border">
+                  <button className="text-subtle hover:text-muted" title="Back to projects" onClick={() => setTrash(null)}>
+                    <ArrowLeft size={13} />
+                  </button>
+                  <span className="text-xs text-subtle uppercase tracking-wider flex-1">Trash</span>
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {trash.length === 0 ? (
+                    <div className="p-3 text-xs text-muted italic">The trash is empty</div>
+                  ) : trash.map((t) => (
+                    <div key={t.id} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-300">
+                      <div className="flex-1 min-w-0">
+                        <div className="truncate">{t.name}</div>
+                        <div className="text-xs text-subtle">
+                          deleted {t.deleted_at ? new Date(t.deleted_at).toLocaleString() : ''}
+                        </div>
+                      </div>
+                      <button className="text-subtle hover:text-accent" title="Restore (flows come back turned off)"
+                              onClick={() => restore(t.id)}>
+                        <RotateCcw size={13} />
+                      </button>
+                      <button
+                        className={purging === t.id ? 'text-xs text-red-400 font-medium' : 'text-subtle hover:text-red-400'}
+                        title="Delete permanently"
+                        onClick={() => purge(t.id)}
+                        onBlur={() => setPurging(null)}
+                      >
+                        {purging === t.id ? 'Delete forever?' : <Trash2 size={13} />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (<>
             <div className="max-h-56 overflow-y-auto">
               {projects.length === 0 ? (
                 <div className="p-3 text-xs text-muted italic">No projects yet</div>
@@ -134,13 +199,24 @@ export function TopBar() {
                 projects.map((p) => (
                   <div
                     key={p.id}
-                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-surface-overlay text-sm
+                    className={`group flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-surface-overlay text-sm
                       ${activeProject?.id === p.id ? 'text-accent' : 'text-slate-300'}`}
                     onClick={() => { openProject(p.id); setShowProjects(false) }}
                   >
                     <FolderOpen size={12} className="shrink-0" />
                     <span className="flex-1 truncate">{p.name}</span>
-                    <span className="text-xs text-subtle">{p.updated_at?.slice(0, 10)}</span>
+                    <span className="text-xs text-subtle group-hover:hidden">{p.updated_at?.slice(0, 10)}</span>
+                    <button
+                      className="hidden group-hover:block text-subtle hover:text-red-400"
+                      title="Delete project"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowProjects(false)
+                        setDeleting({ kind: 'project', projectId: p.id, name: p.name })
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ))
               )}
@@ -163,16 +239,20 @@ export function TopBar() {
                 </div>
               </div>
             )}
-            {activeProject && (
-              <div className="border-t border-canvas-border p-2">
+            <div className="border-t border-canvas-border p-2 flex gap-1">
+              {activeProject && (
                 <button
-                  className="btn-ghost w-full text-xs text-muted justify-center"
+                  className="btn-ghost flex-1 text-xs text-muted justify-center"
                   onClick={() => { closeProject(); setShowProjects(false) }}
                 >
                   Close project
                 </button>
-              </div>
-            )}
+              )}
+              <button className="btn-ghost flex-1 text-xs text-muted justify-center gap-1.5" onClick={openTrash}>
+                <Trash2 size={11} /> Trash
+              </button>
+            </div>
+            </>)}
           </div>
         )}
       </div>
@@ -232,7 +312,10 @@ export function TopBar() {
                 <span
                   className="opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-red-400 ml-0.5 leading-none transition-opacity"
                   title="Delete flow"
-                  onClick={(e) => { e.stopPropagation(); deleteFlow(f.id) }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDeleting({ kind: 'flow', projectId: activeProject.id, flowId: f.id, name: f.name })
+                  }}
                 >
                   ×
                 </span>
