@@ -46,6 +46,9 @@ _wt = Path(_wasmtime.__file__).parent
 for lib in _wt.rglob("_libwasmtime.*"):
     binaries.append((str(lib), str(Path("wasmtime") / lib.parent.relative_to(_wt))))
 
+# fast_read: ConnectorX, a Rust extension imported lazily.
+add_all("connectorx")
+
 # Libraries node code imports at run time, which analysis can't see.
 for pkg in ("pandas", "numpy", "pyarrow", "duckdb", "polars", "scipy",
             "matplotlib", "seaborn", "plotly"):

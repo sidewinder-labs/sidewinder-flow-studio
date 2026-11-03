@@ -110,7 +110,7 @@ environment (a clean one keeps the bundle small).
 cd frontend && npm install && npm run build && cd ..
 
 # 2. the backend sidecar (dist/sfs-backend/)
-python -m pip install "./backend[pushdown]" ./plugins/sfs-plugin-curvefit pyinstaller
+python -m pip install "./backend[pushdown,fastread]" ./plugins/sfs-plugin-curvefit pyinstaller
 cd desktop/sidecar && pyinstaller --noconfirm sfs-backend.spec && cd ../..
 
 # 3. check it, then build the app and installers (AppImage, .deb) in
@@ -128,9 +128,9 @@ the shell with `cargo build` in `src-tauri/` and point it at the sidecar with
 
 Bundled: the pandas, Polars, DuckDB, SQL and Ibis engines, PostgreSQL and
 SQLite, Explore (including live queries on a connection, through SQLGlot), the
-curve-fitting plugin, and the libraries node code commonly imports (NumPy,
-pandas, PyArrow, SciPy, matplotlib, seaborn, Plotly, Polars, DuckDB, SQLGlot,
-Ibis). Node code can import only what is bundled: there is no Python to
+curve-fitting plugin, `fast_read` with ConnectorX, and the libraries node code
+commonly imports (NumPy, pandas, PyArrow, SciPy, matplotlib, seaborn, Plotly,
+Polars, DuckDB, SQLGlot, Ibis). Node code can import only what is bundled: there is no Python to
 `pip install` into.
 
 Not included: the Report node (Streamlit; hidden in the UI, since Explore

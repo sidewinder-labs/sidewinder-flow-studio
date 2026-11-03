@@ -124,8 +124,13 @@ def main(exe: str) -> None:
             node("duck", {"engine": "duckdb", "code": "SELECT g, COUNT(*) AS n, AVG(x) AS mean FROM df GROUP BY g ORDER BY g"}),
             node("pol", {"engine": "polars", "code": 'df = df.with_columns((pl.col("n") * 2).alias("n2"))'}),
             node("sql", {"engine": "sql", "target_connection": "lite", "code": "SELECT 41 + 1 AS answer"}),
+            # fast_read: the bundled ConnectorX must load (else it silently falls back)
+            node("fr", {"engine": "pandas", "code":
+                        'arrow, info = _fast_read_arrow("lite", sql="SELECT 41 + 1 AS answer")\n'
+                        'assert info["path"] == "connectorx", info\n'
+                        'df = arrow.to_pandas()'}),
         ]
-        flow["edges"] += [edge(trig, "plain"), edge("plain", "gen"), edge("gen", "duck"), edge("duck", "pol"), edge(trig, "sql")]
+        flow["edges"] += [edge(trig, "plain"), edge("plain", "gen"), edge("gen", "duck"), edge("duck", "pol"), edge(trig, "sql"), edge("sql", "fr")]
         call(f"/api/projects/{pid}", {"flows": [flow]}, method="PUT")
         call("/api/execute/run", {"project_id": pid, "flow_id": flow["id"], "flow_state": flow})
 
@@ -146,7 +151,9 @@ def main(exe: str) -> None:
             fail(f"unexpected Polars output: {pol['schema']}, {pol['total']} rows")
         if call(f"/api/execute/frame/{pid}/sql")["rows"] != [{"answer": 42}]:
             fail("SQL engine result is wrong")
-        print(f"flow ok in {runs[0]['duration_ms']} ms (pandas, DuckDB, Polars, SQL)", flush=True)
+        if call(f"/api/execute/frame/{pid}/fr")["rows"] != [{"answer": 42}]:
+            fail("fast_read result is wrong")
+        print(f"flow ok in {runs[0]['duration_ms']} ms (pandas, DuckDB, Polars, SQL, fast_read)", flush=True)
 
         # ── first run: desktop info, and the sample project (its CSV is bundled data) ──
         info = call("/api/desktop/")
