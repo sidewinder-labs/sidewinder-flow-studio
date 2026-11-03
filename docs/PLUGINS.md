@@ -129,7 +129,7 @@ params=(
 |---|---|
 | `key` | Stored in node data and used as the key in `ec.params`. |
 | `label` | Field label (defaults to `key`). |
-| `type` | `string` \| `number` \| `boolean` \| `select` \| `column` \| `connection`. Unknown types render as text. |
+| `type` | `string` \| `text` (multi-line, monospaced: SQL and the like) \| `number` \| `boolean` \| `select` \| `column` \| `connection`. Unknown types render as text. |
 | `default` | Applied when the field is empty. |
 | `required` | Run fails early with a clear message if empty. |
 | `options` | Choices for `select`: strings, or `{"value", "label", "group"}` objects. Options that share a `group` are listed under that heading, in first-seen order. `value` is what is stored. |

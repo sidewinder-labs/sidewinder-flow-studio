@@ -30,7 +30,8 @@ editing node code, flows, or SFS source.
 | `get_storage(name)` | ADLS storage_options dict for abfs:// paths |
 | `read_files(folder, pattern, regex=…)` | load many files → one df (adds `_source_file`) |
 | `list_files(folder, pattern, regex=…)` | matching paths |
-| `read_tables(conn, [tables], schema=…)` | load many tables → one df (adds `_source_table`) |
+| `fast_read(conn, table=… \| tables=[…] \| sql=…, schema=…, partition_on=…, partitions=4)` | fast database read straight to Arrow (ConnectorX; ClickHouse over HTTP as Arrow); returns pandas in a pandas node, **Polars in a Polars node**. `partition_on` (numeric column) reads slices in parallel. Use INSTEAD of pd.read_sql for large reads |
+| `read_tables(conn, [tables], schema=…)` | load many tables → one pandas df (adds `_source_table`); built on fast_read |
 | `read_delta(path, storage_conn=None)` | Delta table → df (needs `deltalake` extra) |
 | `read_iceberg("ns.table", …)` | Iceberg table → df (needs `pyiceberg` extra) |
 | `fast_write(df, conn, table, mode)` | native bulk load — Postgres COPY, ClickHouse native, SQL Server fast_executemany, MySQL/StarRocks/Doris batched executemany, Oracle array bind, Iceberg via pyiceberg; falls back to batched to_sql for others. Use INSTEAD of df.to_sql for large writes |
@@ -44,13 +45,18 @@ editing node code, flows, or SFS source.
 - **polars**: `df` is a LazyFrame (scan of upstream IPC). Stay lazy; do NOT
   call `.collect()` — SFS collects (streaming). `pl` injected.
 - **duckdb**: code is SQL; upstream frame is table `df` (also `df2`, `df3`).
-  Query result becomes the output. SFS fetches it with
-  `app/core/duckdb_arrow.result_to_arrow`, which covers the DuckDB 1.x
-  (`.arrow()`) and 2.x (`.to_arrow_table()`) APIs — use it, not those calls.
+  Query result becomes the output. SFS runs it with
+  `app/core/duckdb_arrow.query_to_arrow(con, sql)` (con.sql, no extra copy;
+  covers the DuckDB 1.x and 2.x Arrow APIs) — use it, not those calls.
+  DuckDB nodes can't call Python helpers: to read a database, put a
+  Database read node (or a fast_read node) before them.
 - **sql** (pushdown): SQL runs IN the target connection's warehouse
   (SQLGlot transpiles dialects). SELECT/WITH results are fetched as the frame;
   DDL/DML (CREATE/COPY/LOAD/MERGE) execute without fetching. Upstream frame is
   NOT available in the warehouse.
+- **fast_read** ("Database read", no code): params `connection`, `mode`
+  (table | tables | sql), `source`, `schema`, `partition_on`, `partitions`.
+  Outputs Arrow, so any engine can follow, DuckDB included.
 - **ibis** (pushdown): Python; injected `ibis`, `con` (backend for
   target connection), upstream `df` as memtable. Leave an ibis expression in
   `df`; SFS executes it warehouse-side and pulls the result to pandas.
@@ -101,6 +107,30 @@ Conventions: lazy-import heavy deps (duckdb, polars, sqlglot, ibis, drivers)
 inside functions so the app starts without extras installed; optional drivers
 are pyproject extras (`pip install ".[clickhouse]"`, `.[all-connectors]`,
 `.[pushdown]`).
+
+## Reading data — use `fast_read`, NOT `pd.read_sql`
+
+`pd.read_sql` builds a Python object per value before pandas turns them back
+into columns: the slowest way to read millions of rows. `fast_read` reads
+straight into Arrow and hands each engine its own type, so the same line works
+in pandas and Polars nodes:
+
+```python
+df = fast_read("pg", table="public.orders")
+df = fast_read("pg", tables=["sales_2025", "sales_2026"], schema="public")   # adds _source_table
+df = fast_read("pg", sql="SELECT * FROM orders WHERE status = 'paid'",
+               partition_on="order_id", partitions=8)                       # parallel slices
+```
+
+Exactly one of `table`, `tables`, `sql`. Paths: ConnectorX for PostgreSQL,
+Redshift, MySQL, SQL Server, Oracle and SQLite; ClickHouse's HTTP interface
+returning Arrow; otherwise SQLAlchemy (also when the connection has
+connect_args, e.g. Trino auth, or `connectorx` isn't installed). The node's
+output says which path ran. `partition_on` must be numeric (integer on the
+ConnectorX path); rows where it is NULL are read too. On ClickHouse,
+partitioning helps only for a column in the table's ORDER BY. Measured:
+PostgreSQL 2.8M rows 4.9 s → 1.4 s (0.48 s with 8 partitions); ClickHouse
+3.0M rows 88 s → 1.6 s.
 
 ## Writing data — use `fast_write`, NOT `df.to_sql`
 
@@ -169,8 +199,10 @@ express upserts through pandas.
    compose extra_hosts.
    Desktop note (`/api/capabilities` → `features.desktop`): node code can
    import only the bundled libraries (pandas, NumPy, PyArrow, Polars, DuckDB,
-   SciPy, matplotlib, seaborn, Plotly, SQLGlot, Ibis, lmfit); there is no pip.
+   SciPy, matplotlib, seaborn, Plotly, SQLGlot, Ibis, lmfit, ConnectorX); there is no pip.
    Connectors: PostgreSQL and SQLite only. No Report node (no Streamlit viewer).
 7. **Writing to a database/table: use `fast_write(df, conn, table, mode)`, NOT
    `df.to_sql`.** to_sql is row-by-row and slow; fast_write uses each database's
    native bulk loader. See "Writing data" above.
+8. **Reading from a database: use `fast_read(conn, table=/tables=/sql=)`, NOT
+   `pd.read_sql`**, for anything beyond a few thousand rows. See "Reading data".

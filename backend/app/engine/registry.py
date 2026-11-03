@@ -77,7 +77,8 @@ class EngineSpec:
     # fields above the code editor and their values are delivered in
     # EngineContext.params. Engines that declare none stay code-cell-only.
     # Each entry: {key, label, type, default?, required?, options?, help?}
-    # type ∈ string | number | boolean | select | column | connection
+    # type ∈ string | text | number | boolean | select | column | connection
+    # (text: a multi-line field, e.g. SQL)
     params: tuple[dict, ...] = ()
     # Optional "View as Python": to_code(params, inputs) -> str returns plain
     # pandas-node code doing the same work as the form. `params` are the

@@ -40,12 +40,11 @@ Each Processor node picks an engine. The engine only changes *how you write the 
 
 Full Python flexibility. The incoming frame is `df`; leave the result in `df`.
 
-**Injected without imports:** `pd` (pandas), `sa` (sqlalchemy), `get_engine(name)`, `get_storage(name)`, `vars`.
+**Injected without imports:** `pd` (pandas), `sa` (sqlalchemy), `get_engine(name)`, `get_storage(name)`, `fast_read(...)`, `fast_write(...)`, `vars`.
 
 ```python
 # Read from a connection, transform, done
-engine = get_engine("postgres_local")
-df = pd.read_sql("SELECT * FROM employees.salary WHERE from_date >= '1990-01-01'", engine)
+df = fast_read("postgres_local", sql="SELECT * FROM employees.salary WHERE from_date >= '1990-01-01'")
 df['year'] = pd.to_datetime(df['from_date']).dt.year
 df = df.groupby('year', as_index=False)['amount'].mean()
 ```
@@ -224,6 +223,36 @@ vars['env'] == 'prod'             # a global variable
 Branches that aren't taken are skipped, **but a node that several branches feed
 into still runs** — so you can fan out and merge back. After a run, the node
 shows which branch was taken.
+
+## Reading data fast — `fast_read`
+
+`pd.read_sql` turns every value into a Python object before pandas rebuilds the columns. `fast_read` reads straight into Arrow and returns the node's own type: a pandas DataFrame in a pandas node, a Polars DataFrame in a Polars node. The same line works in both.
+
+```python
+df = fast_read("postgres_local", table="employees.salary")
+df = fast_read("postgres_local", tables=["sales_2025", "sales_2026"], schema="public")   # stacked, with _source_table
+df = fast_read("postgres_local", sql="SELECT * FROM employees.salary WHERE amount > 60000",
+               partition_on="employee_id", partitions=8)                                # 8 slices in parallel
+```
+
+- Give exactly one of `table`, `tables` or `sql`.
+- `partition_on` (a numeric column) splits the read into `partitions` ranges read at the same time. Rows where the column is NULL are included.
+- How it reads, shown under the node in the Output panel:
+  - **ConnectorX** for PostgreSQL, Redshift, MySQL, SQL Server, Oracle and SQLite (`connectorx` comes with `all-connectors` and the desktop app). ConnectorX partitions on integer columns.
+  - **ClickHouse Arrow**: ClickHouse's HTTP interface returns Arrow directly. ClickHouse already reads on all cores, so partitioning only helps on a column in the table's `ORDER BY`.
+  - **SQLAlchemy** for anything else, for connections with extra connection options (e.g. Trino auth), or without `connectorx`. Partitioning is ignored there.
+- `read_tables(conn, [tables])` still works and returns pandas; it is built on `fast_read`.
+
+**The Database read node** does the same without code: a Processor with the **Database read** engine. Pick a connection, choose *A table*, *Several tables* or *A SQL query*, and optionally a partition column. Its output is Arrow, so any engine can follow, including DuckDB (which runs SQL over frames and can't read a database itself). **View as Python** shows the equivalent `fast_read` line.
+
+Measured on this project's demo data (median of 3, in Docker):
+
+| | `pd.read_sql` | `fast_read` | 4 partitions | 8 partitions |
+|---|---|---|---|---|
+| PostgreSQL, 2.84M rows | 4.9 s | 1.4 s | 0.65 s | **0.48 s** |
+| ClickHouse, 2.96M rows (no sort key) | 88.5 s | **1.6 s** | 2.0 s | 3.4 s |
+
+---
 
 ## Writing data fast — `fast_write`
 

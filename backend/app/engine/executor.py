@@ -243,19 +243,39 @@ def build_exec_context(
             frames.append(part)
         return pd.concat(frames, ignore_index=True)
 
+    def _fast_read_arrow(connection_name: str, *, table: str | None = None,
+                         tables: list[str] | None = None, sql: str | None = None,
+                         schema: str | None = None, partition_on: str | None = None,
+                         partitions: int | None = None, source_col: str | None = "_source_table"):
+        """fast_read returning (pyarrow.Table, info); see app/engine/fast_read.py."""
+        from app.engine import fast_read as _fr
+        if connection_name not in connections:
+            raise ValueError(f"Connection '{connection_name}' not found. Available: {list(connections)}")
+        return _fr.read(connections[connection_name], dialects.get(connection_name, ""),
+                        connect_args.get(connection_name) or None,
+                        table=table, tables=tables, sql=sql, schema=schema,
+                        partition_on=partition_on, partitions=partitions, source_col=source_col)
+
+    def fast_read(connection_name: str, *, table: str | None = None,
+                  tables: list[str] | None = None, sql: str | None = None,
+                  schema: str | None = None, partition_on: str | None = None,
+                  partitions: int | None = None):
+        """Read from a database connection, fast. Give exactly one of table=,
+        tables= (concatenated, with a `_source_table` column) or sql=.
+        partition_on= a numeric column splits the read into `partitions`
+        (default 4) parallel slices. Returns a DataFrame of the node's engine:
+        pandas here, Polars in a Polars node."""
+        arrow, _ = _fast_read_arrow(connection_name, table=table, tables=tables, sql=sql,
+                                    schema=schema, partition_on=partition_on, partitions=partitions)
+        return arrow.to_pandas()
+
     def read_tables(connection_name: str, table_names: list[str],
                     schema: str | None = None, add_source_col: str | None = "_source_table"):
         """Load and concatenate several tables from one connection into a single
-        DataFrame. Example: read_tables('Prod PG', ['daily_a','daily_b'], schema='sales')."""
-        eng = get_engine(connection_name)
-        frames = []
-        for t in table_names:
-            qualified = f"{schema}.{t}" if schema else t
-            part = pd.read_sql(f"SELECT * FROM {qualified}", eng)
-            if add_source_col:
-                part[add_source_col] = t
-            frames.append(part)
-        return pd.concat(frames, ignore_index=True)
+        pandas DataFrame. Example: read_tables('Prod PG', ['daily_a','daily_b'], schema='sales')."""
+        arrow, _ = _fast_read_arrow(connection_name, tables=list(table_names), schema=schema,
+                                    source_col=add_source_col)
+        return arrow.to_pandas()
 
     def fast_write(df, connection_name: str, table: str,
                    mode: str = "append", **kwargs) -> int:
@@ -486,6 +506,8 @@ def build_exec_context(
         "list_files": list_files,
         "read_files": read_files,
         "read_tables": read_tables,
+        "fast_read": fast_read,
+        "_fast_read_arrow": _fast_read_arrow,
         "fast_write": fast_write,
         "vars": variables,
     }
@@ -934,6 +956,13 @@ def exec_polars_processor(code: str, paths: list[str], ctx: dict, imports_code: 
     import polars as pl  # lazy — backend still starts if polars isn't installed
 
     local: dict[str, Any] = {**ctx, "pl": pl}
+    if "_fast_read_arrow" in ctx:
+        # The same fast_read line works in pandas and Polars nodes: here it
+        # returns a Polars DataFrame.
+        def fast_read(connection_name: str, **kwargs):
+            return pl.from_arrow(ctx["_fast_read_arrow"](connection_name, **kwargs)[0])
+        fast_read.__doc__ = ctx["fast_read"].__doc__
+        local["fast_read"] = fast_read
     local["df"] = pl.scan_ipc(paths[0]) if paths else pl.LazyFrame()
     for i, pth in enumerate(paths[1:], start=2):
         local[f"df{i}"] = pl.scan_ipc(pth)
@@ -1049,6 +1078,56 @@ def _register_builtin_engines() -> None:
         language="python", tier="free", requires=("ibis",),
         needs_target_connection=True,
     ))
+
+    register_engine(EngineSpec(
+        name="fast_read", label="Database read",
+        description="No code · table, tables or SQL · parallel",
+        run=_run_fast_read, input_mode="none", output_mode="arrow",
+        language="sql", tier="free",
+        hint="Pick a connection and what to read. The output is Arrow, so any engine can follow, DuckDB included.",
+        params=FAST_READ_PARAMS, to_code=_fast_read_code,
+    ))
+
+
+FAST_READ_PARAMS = (
+    {"key": "connection", "label": "Connection", "type": "connection", "required": True},
+    {"key": "mode", "label": "Read", "type": "select", "default": "table",
+     "options": [{"value": "table", "label": "A table"},
+                 {"value": "tables", "label": "Several tables (stacked)"},
+                 {"value": "sql", "label": "A SQL query"}]},
+    {"key": "source", "label": "Table, tables or SQL", "type": "text", "required": True,
+     "help": "A table name (schema.table), names separated by commas, or a SELECT query."},
+    {"key": "schema", "label": "Schema", "type": "string",
+     "help": "Optional; prefixed to table names that have none."},
+    {"key": "partition_on", "label": "Partition on", "type": "string",
+     "help": "Optional numeric column. Splits the read into parallel slices of its range."},
+    {"key": "partitions", "label": "Partitions", "type": "number", "default": 4},
+)
+
+
+def _fast_read_args(p: dict) -> dict:
+    mode, source = p.get("mode") or "table", (p.get("source") or "").strip()
+    if mode not in ("table", "tables", "sql"):
+        raise ValueError(f"Database read: unknown mode '{mode}'")
+    kwargs: dict = {mode: [t.strip() for t in source.split(",") if t.strip()] if mode == "tables" else source}
+    if p.get("schema") and mode != "sql":
+        kwargs["schema"] = p["schema"].strip()
+    if p.get("partition_on"):
+        kwargs["partition_on"] = p["partition_on"].strip()
+        kwargs["partitions"] = int(p.get("partitions") or 4)
+    return kwargs
+
+
+def _run_fast_read(ec: "EngineContext"):
+    arrow, _ = ec.exec_globals["_fast_read_arrow"](ec.params["connection"], **_fast_read_args(ec.params))
+    return arrow
+
+
+def _fast_read_code(params: dict, inputs: list) -> str:
+    """View as Python: the same read as one fast_read() line."""
+    args = ", ".join(f"{k}={v!r}" for k, v in _fast_read_args(params).items())
+    return (f"# Same read as the Database read node; works unchanged in a Polars node.\n"
+            f"df = fast_read({params.get('connection')!r}, {args})\n")
 
 
 _register_builtin_engines()
@@ -1301,7 +1380,12 @@ async def _execute_flow(
                 # responsive, and lets independent nodes genuinely overlap —
                 # pandas, DuckDB, Polars and Arrow all release the GIL for the
                 # heavy parts.
-                result = await asyncio.to_thread(spec.run, ec)
+                from app.engine import fast_read as _fr
+                _reads_token = _fr.begin_node()
+                try:
+                    result = await asyncio.to_thread(spec.run, ec)
+                finally:
+                    reads = _fr.end_node(_reads_token)
 
                 # The engine may have streamed its result straight to the cache
                 # file (e.g. polars sink_ipc) — nothing left to write.
@@ -1346,11 +1430,13 @@ async def _execute_flow(
                     "type": "node_complete",
                     "node_id": node_id, "label": label,
                     "rows_in": rows_in, "rows_out": rows_out, "duration_ms": duration_ms,
+                    **({"reads": reads} if reads else {}),
                 })
                 results.append({
                     "node_id": node_id, "node_type": node_type,
                     "status": "ok", "rows_in": rows_in, "rows_out": rows_out,
                     "duration_ms": duration_ms,
+                    **({"reads": reads} if reads else {}),
                 })
                 return
 
