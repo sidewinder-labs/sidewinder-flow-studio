@@ -46,6 +46,20 @@ _wt = Path(_wasmtime.__file__).parent
 for lib in _wt.rglob("_libwasmtime.*"):
     binaries.append((str(lib), str(Path("wasmtime") / lib.parent.relative_to(_wt))))
 
+# Database drivers that need nothing else installed: ClickHouse, MySQL/MariaDB
+# (and StarRocks/Doris, which speak its protocol), Oracle (thin mode) and Trino.
+# SQL Server (pyodbc) is bundled too, but needs Microsoft's ODBC driver on the
+# machine for get_engine; fast_read reaches it through ConnectorX without one.
+# ClickHouse and Trino register their SQLAlchemy dialects through entry points,
+# so their dist-info is copied as well.
+hiddenimports += ["pymysql", "sqlalchemy.dialects.mysql.pymysql",
+                  "sqlalchemy.dialects.oracle.oracledb",
+                  "pyodbc", "sqlalchemy.dialects.mssql.pyodbc"]
+for pkg in ("clickhouse_sqlalchemy", "trino", "oracledb"):
+    hiddenimports += collect_submodules(pkg, filter=lambda m: ".tests" not in m)
+datas += collect_data_files("clickhouse_sqlalchemy") + collect_data_files("oracledb")
+datas += copy_metadata("clickhouse-sqlalchemy") + copy_metadata("trino")
+
 # fast_read: ConnectorX, a Rust extension imported lazily.
 add_all("connectorx")
 

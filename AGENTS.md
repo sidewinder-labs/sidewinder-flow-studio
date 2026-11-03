@@ -200,7 +200,9 @@ express upserts through pandas.
    Desktop note (`/api/capabilities` → `features.desktop`): node code can
    import only the bundled libraries (pandas, NumPy, PyArrow, Polars, DuckDB,
    SciPy, matplotlib, seaborn, Plotly, SQLGlot, Ibis, lmfit, ConnectorX); there is no pip.
-   Connectors: PostgreSQL and SQLite only. No Report node (no Streamlit viewer).
+   Connectors: PostgreSQL, MySQL/MariaDB/StarRocks/Doris, SQL Server (needs the
+   OS-level MS ODBC driver except for fast_read), Oracle, ClickHouse, Trino and
+   SQLite; a database on the user's machine is `localhost`. No Report node.
 7. **Writing to a database/table: use `fast_write(df, conn, table, mode)`, NOT
    `df.to_sql`.** to_sql is row-by-row and slow; fast_write uses each database's
    native bulk loader. See "Writing data" above.

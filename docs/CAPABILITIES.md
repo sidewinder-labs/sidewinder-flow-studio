@@ -308,9 +308,13 @@ Supported dialects and what the fields mean:
 
 **Using a connection in a processor:**
 ```python
-eng = get_engine("Prod Postgres")
-df = pd.read_sql("SELECT * FROM schema.table LIMIT 1000", eng)
+df = fast_read("Prod Postgres", sql="SELECT * FROM schema.table LIMIT 1000")   # fast, see "Reading data fast"
+eng = get_engine("Prod Postgres")                                              # a SQLAlchemy engine, for anything else
 ```
+
+**SQL Server needs Microsoft's ODBC driver** on the machine running SFS for `get_engine`, writing (`fast_write`), the SQL engine and Explore: install **ODBC Driver 18 for SQL Server** ([Windows, Linux, macOS](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server)) and set `driver=ODBC Driver 18 for SQL Server` in the connection's extra options. Without it, the connection test fails with an error naming the missing driver. `fast_read` and the Database read node don't need it: they reach SQL Server through ConnectorX, which speaks its protocol directly.
+
+**In the desktop app**, the drivers for PostgreSQL, MySQL/MariaDB (and StarRocks, Doris), SQL Server, Oracle, ClickHouse, Trino and SQLite are built in. Snowflake, BigQuery, Redshift, Databricks, Druid, Azure Data Lake, Delta and Iceberg need the server edition (Docker). On the desktop, a database on your own computer is at `localhost`, not `host.docker.internal`.
 
 **Azure Data Lake is storage, not SQL** — use `get_storage()`:
 ```python

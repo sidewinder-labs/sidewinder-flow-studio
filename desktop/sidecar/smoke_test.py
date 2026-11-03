@@ -129,8 +129,17 @@ def main(exe: str) -> None:
                         'arrow, info = _fast_read_arrow("lite", sql="SELECT 41 + 1 AS answer")\n'
                         'assert info["path"] == "connectorx", info\n'
                         'df = arrow.to_pandas()'}),
+            # Bundled database drivers: building an engine loads the dialect and its
+            # driver (no server needed). pyodbc also needs libodbc on Linux.
+            node("drivers", {"engine": "pandas", "code":
+                             'urls = ["clickhouse+http://u:p@h:8123/default", "mysql+pymysql://u:p@h/db",\n'
+                             '        "oracle+oracledb://u:p@h:1521/?service_name=x", "trino://u@h:8080/hive",\n'
+                             '        "mssql+pyodbc://u:p@h:1433/db?driver=ODBC+Driver+18+for+SQL+Server"]\n'
+                             'for u in urls:\n'
+                             '    sa.create_engine(u).dialect.import_dbapi()\n'
+                             'df = pd.DataFrame({"drivers": [len(urls)]})'}),
         ]
-        flow["edges"] += [edge(trig, "plain"), edge("plain", "gen"), edge("gen", "duck"), edge("duck", "pol"), edge(trig, "sql"), edge("sql", "fr")]
+        flow["edges"] += [edge(trig, "drivers"), edge(trig, "plain"), edge("plain", "gen"), edge("gen", "duck"), edge("duck", "pol"), edge(trig, "sql"), edge("sql", "fr")]
         call(f"/api/projects/{pid}", {"flows": [flow]}, method="PUT")
         call("/api/execute/run", {"project_id": pid, "flow_id": flow["id"], "flow_state": flow})
 
@@ -153,7 +162,9 @@ def main(exe: str) -> None:
             fail("SQL engine result is wrong")
         if call(f"/api/execute/frame/{pid}/fr")["rows"] != [{"answer": 42}]:
             fail("fast_read result is wrong")
-        print(f"flow ok in {runs[0]['duration_ms']} ms (pandas, DuckDB, Polars, SQL, fast_read)", flush=True)
+        if call(f"/api/execute/frame/{pid}/drivers")["rows"] != [{"drivers": 5}]:
+            fail("a bundled database driver did not load")
+        print(f"flow ok in {runs[0]['duration_ms']} ms (pandas, DuckDB, Polars, SQL, fast_read, 5 drivers)", flush=True)
 
         # ── first run: desktop info, and the sample project (its CSV is bundled data) ──
         info = call("/api/desktop/")

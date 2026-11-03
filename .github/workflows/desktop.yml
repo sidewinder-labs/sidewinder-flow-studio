@@ -81,7 +81,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf unixodbc
 
       # ── frontend ──
       - uses: actions/setup-node@v5
@@ -104,7 +104,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/pyproject.toml
       - name: Install the backend, bundled plugins and PyInstaller
-        run: python -m pip install "./backend[pushdown,fastread]" ./plugins/sfs-plugin-curvefit pyinstaller pytest
+        run: python -m pip install "./backend[pushdown,fastread,clickhouse,mysql,oracle,trino,mssql]" ./plugins/sfs-plugin-curvefit pyinstaller pytest
       - name: Windows signing tool
         if: runner.os == 'Windows' && env.WIN_SIGNING == 'true'
         run: cargo install trusted-signing-cli --locked
