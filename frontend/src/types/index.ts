@@ -67,6 +67,7 @@ export interface WsNodeComplete {
   rows_in: number
   rows_out: number
   duration_ms: number
+  reads?: FastReadInfo[]
 }
 
 export interface WsNodeError {
@@ -81,11 +82,22 @@ export interface WsNodeStopped {
   type: 'node_stopped'
   node_id: string
   label: string
-  rows: number
+  row_count: number                 // rows that reached the Stop node
   duration_ms: number
+  mode: 'hard' | 'tap' | string
   schema: ColumnSchema[]
-  rows: Record<string, unknown>[]
+  rows: Record<string, unknown>[]   // preview rows
   total: number
+}
+
+export interface WsNodeRouted {
+  type: 'node_routed'
+  node_id: string
+  label: string
+  chosen: string[]
+  row_count: number
+  errors?: unknown
+  duration_ms: number
 }
 
 export interface WsFlowComplete {
@@ -115,11 +127,19 @@ export interface WsTableReady {
 
 export type WsEvent =
   | WsNodeStart | WsNodeComplete | WsNodeError
-  | WsNodeStopped | WsFlowComplete | WsChartReady | WsTableReady
+  | WsNodeStopped | WsNodeRouted | WsFlowComplete | WsChartReady | WsTableReady
 
 // ── Node execution state (derived from events) ────────────────────────────────
 
 export type NodeStatus = 'idle' | 'running' | 'ok' | 'error' | 'stopped' | 'blocked'
+
+export interface FastReadInfo {
+  path: 'connectorx' | 'clickhouse-arrow' | 'sqlalchemy'
+  rows: number
+  queries: number
+  partitions: number
+  note?: string
+}
 
 export interface NodeExecState {
   status: NodeStatus
@@ -130,6 +150,8 @@ export interface NodeExecState {
   rows_out?: number
   duration_ms?: number
   detail?: string
+  // fast_read / Database read: how each read in the node ran
+  reads?: FastReadInfo[]
   // For output nodes:
   chart_type?: ChartType
   chart_payload?: string

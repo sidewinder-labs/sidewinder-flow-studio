@@ -86,6 +86,7 @@ export function ImportsPanel() {
         <div><code className="text-accent">get_engine(name)</code> / <code className="text-accent">get_storage(name)</code></div>
         <div><code className="text-accent">read_files(folder, pattern, regex=…)</code> — load many files → one df</div>
         <div><code className="text-accent">list_files(folder, pattern, regex=…)</code> — list matching paths</div>
+        <div><code className="text-accent">fast_read(conn, table=… | tables=[…] | sql=…)</code> — fast database read (use instead of pd.read_sql)</div>
         <div><code className="text-accent">read_tables(conn, [tables], schema=…)</code> — load many tables → one df</div>
         <div><code className="text-accent">vars</code> — global variables dict</div>
       </div>

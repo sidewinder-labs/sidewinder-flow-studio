@@ -13,7 +13,7 @@ import { api } from '@/utils/api'
 interface AgentBoxProps {
   nodeId: string
   nodeType: 'processor' | 'chart' | 'report'
-  engine?: 'pandas' | 'duckdb' | 'polars'   // selects prompt style; default pandas
+  engine?: string   // selects prompt style: duckdb, polars, else pandas
   onInsert: (code: string) => void   // called when user accepts generated code
 }
 

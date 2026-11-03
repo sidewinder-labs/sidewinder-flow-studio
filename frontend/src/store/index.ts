@@ -486,6 +486,7 @@ export const useStore = create<AppState>((set, get) => ({
               rows_in: event.rows_in,
               rows_out: event.rows_out,
               duration_ms: event.duration_ms,
+              ...(event.reads ? { reads: event.reads } : {}),
             },
           },
         }))
@@ -504,9 +505,9 @@ export const useStore = create<AppState>((set, get) => ({
             ...s.execState,
             [event.node_id]: {
               status: 'ok',
-              rows_out: (event as any).row_count,
+              rows_out: event.row_count,
               duration_ms: event.duration_ms,
-              chosen: (event as any).chosen,
+              chosen: event.chosen,
             },
           },
         }))
@@ -516,12 +517,12 @@ export const useStore = create<AppState>((set, get) => ({
           execState: {
             ...s.execState,
             [event.node_id]: {
-              status: (event as any).mode === 'hard' ? 'stopped' : 'ok',
-              rows_out: (event as any).row_count,
+              status: event.mode === 'hard' ? 'stopped' : 'ok',
+              rows_out: event.row_count,
               duration_ms: event.duration_ms,
-              table_schema: (event as any).schema,
-              table_rows: (event as any).rows,
-              table_total: (event as any).total,
+              table_schema: event.schema,
+              table_rows: event.rows,
+              table_total: event.total,
             },
           },
         }))

@@ -5,7 +5,8 @@
  * newly installed plugin's parameters appear with no frontend change. Values
  * are stored in the node's data under each param's `key`.
  *
- * Supported types: string | number | boolean | select | column | connection
+ * Supported types: string | text | number | boolean | select | column | connection
+ * (text is a multi-line, monospaced field, e.g. for SQL)
  * Unknown types fall back to a text input rather than rendering nothing.
  * Select options are plain strings, or {value, label?, group?} objects; options
  * that share a group are shown under that heading.
@@ -135,6 +136,14 @@ export function EngineParams({ params, data, nodeId, onChange }: Props) {
                   <option key={c.id} value={c.name}>{c.name} ({c.dialect})</option>
                 ))}
               </select>
+            )
+            break
+
+          case 'text':
+            field = (
+              <textarea id={id} rows={4} spellCheck={false}
+                className="input text-xs font-mono resize-y leading-relaxed" value={value as any}
+                onChange={(e) => onChange(p.key, e.target.value)} />
             )
             break
 

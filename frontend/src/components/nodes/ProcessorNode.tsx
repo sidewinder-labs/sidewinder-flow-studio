@@ -14,10 +14,13 @@ export const ProcessorNode = memo(({ id, data, selected }: NodeProps<ProcessorDa
   const isPolars = nodeEngine === 'polars'
   const isSql = nodeEngine === 'sql'
   const isIbis = nodeEngine === 'ibis'
+  const isRead = nodeEngine === 'fast_read'
   // Plugin engines: show which one, and (for form-driven ones) their settings
   const engines = useEngines()
   const pluginEngine = engines.find((e) => e.name === nodeEngine && e.source?.startsWith('plugin:'))
-  const summary = paramSummary(pluginEngine, data as any)
+  // Any form-driven engine (plugin or built-in, like Database read) shows its settings
+  const formEngine = engines.find((e) => e.name === nodeEngine && e.params?.length)
+  const summary = paramSummary(formEngine, data as any)
   const firstLine = data.code?.split('\n').find((l) => {
     const t = l.trim()
     return t && !t.startsWith('#') && !t.startsWith('--')
@@ -51,6 +54,10 @@ export const ProcessorNode = memo(({ id, data, selected }: NodeProps<ProcessorDa
         {isIbis && (
           <span className="text-xs font-mono bg-amber-500/15 text-amber-300 rounded px-1 py-px leading-none"
                 title="Ibis pushdown — runs in the warehouse">⚡ ibis</span>
+        )}
+        {isRead && (
+          <span className="text-xs font-mono bg-cyan-500/15 text-cyan-300 rounded px-1 py-px leading-none"
+                title="Database read — fast, no code; any engine can follow">⇣ read</span>
         )}
         {pluginEngine && (
           <span className="text-xs font-mono bg-violet-500/15 text-violet-300 rounded px-1 py-px leading-none truncate max-w-[9rem]"

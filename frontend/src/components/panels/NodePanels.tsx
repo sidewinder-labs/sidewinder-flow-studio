@@ -209,6 +209,8 @@ const PROCESSOR_HINT = `# Incoming DataFrame is available as \`df\`
 #   read_iceberg("ns.table", ...)         — Iceberg table → DataFrame
 #   read_files(folder, pattern, regex=…) — load many files → one DataFrame
 #   list_files(folder, pattern, regex=…) — list matching file paths
+#   fast_read(conn, table=…|tables=[…]|sql=…, partition_on=…) — FAST read to
+#     this engine's frame (pandas here, Polars in a Polars node) — use, not pd.read_sql
 #   read_tables(conn, [tables], schema=…)— load many tables → one DataFrame
 #   fast_write(df, conn, table, mode='append'|'replace') — NATIVE bulk load
 #     (Postgres/ClickHouse/SQLServer/MySQL/Oracle/Iceberg) — far faster than to_sql

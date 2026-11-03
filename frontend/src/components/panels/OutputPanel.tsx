@@ -395,6 +395,12 @@ const OUTPUT_NODE_TYPES = new Set(['table_out', 'chart_out', 'stop'])
 
 // ── Main OutputPanel ──────────────────────────────────────────────────────────
 
+const READ_PATH: Record<string, string> = {
+  connectorx: 'ConnectorX',
+  'clickhouse-arrow': 'ClickHouse Arrow',
+  sqlalchemy: 'SQLAlchemy',
+}
+
 export function OutputPanel() {
   const { execState, activeProject, activeFlowId, running, pinnedOutputNodeId } = useStore()
   // Local pin (from clicking log rows) — overridden by store pin (from Inspect actions)
@@ -492,6 +498,20 @@ export function OutputPanel() {
                     </span>
                   )}
                 </div>
+
+                {/* fast_read: which path each read took, so speed differences are explainable */}
+                {s?.reads && s.reads.length > 0 && (
+                  <div className="px-3 py-1 text-xs text-subtle border-b border-canvas-border/50">
+                    {s.reads.map((r, i) => (
+                      <div key={i} title={r.note}>
+                        Read via <span className="text-slate-300">{READ_PATH[r.path] ?? r.path}</span>
+                        {r.partitions > 1 && <> · {r.partitions} parallel slices</>}
+                        {r.queries > 1 && <> · {r.queries} tables</>}
+                        {r.note && <span className="block text-amber-300/80">{r.note}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Inline error — just the final exception line, click row for full */}
                 {s?.status === 'error' && s.detail && (
