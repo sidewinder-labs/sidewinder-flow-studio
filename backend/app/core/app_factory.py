@@ -38,6 +38,11 @@ async def lifespan(app: FastAPI):
 
     await init_db()
     start_scheduler()
+    try:
+        from app.scheduler.scheduler import load_all_schedules
+        load_all_schedules()
+    except Exception as _exc:                              # noqa: BLE001
+        import logging; logging.getLogger("sfs").error("Loading schedules failed: %s", _exc)
     yield
     stop_scheduler()
 
@@ -66,7 +71,7 @@ def _quiet_access_log(path: str) -> None:
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Sidewinder Flow Studio API",
-        version="1.32.1",
+        version="1.33",
         description="Visual Python notebook DAG with scheduling",
         lifespan=lifespan,
     )

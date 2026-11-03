@@ -125,3 +125,22 @@ def get_frame_meta(flow_id: str, node_id: str) -> dict | None:
         "column_names": schema.names,
         "size_bytes": path.stat().st_size,
     }
+
+
+def delete_project_cache(project_id: str) -> None:
+    """Remove every cached frame of a project (on project delete)."""
+    import shutil
+    shutil.rmtree(Path(settings.FRAME_CACHE_DIR) / project_id, ignore_errors=True)
+
+
+def delete_node_frames(project_id: str, node_ids) -> int:
+    """Remove the cached frames of these nodes (on flow delete); returns how
+    many files went. Frames are keyed by project and node, not by flow."""
+    base = Path(settings.FRAME_CACHE_DIR) / project_id
+    n = 0
+    for node_id in node_ids:
+        f = base / f"{node_id}.arrow"
+        if f.exists():
+            f.unlink()
+            n += 1
+    return n

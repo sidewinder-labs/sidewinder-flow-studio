@@ -1,8 +1,8 @@
 """Projects API."""
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from app.services import project_service
-from app.scheduler.scheduler import register_flow, unregister_flow, get_next_run
+from app.services import deletion, project_service
+from app.scheduler.scheduler import get_next_run, sync_schedules
 
 router = APIRouter()
 
@@ -16,6 +16,8 @@ class ProjectSave(BaseModel):
     flows: list[dict]
     name: str | None = None
     description: str | None = None
+    # When this save removes flows: also drop their persisted tables
+    drop_persisted: bool = False
 
 
 @router.get("/")
@@ -44,6 +46,39 @@ def create_from_example(body: FromExample):
         body.name or ex["name"], ex["description"], ex["flow"])
 
 
+# ── Trash (before /{pid}, which would match "trash") ────────────────────────
+
+@router.get("/trash/")
+def list_trash():
+    return project_service.list_trash()
+
+
+@router.post("/trash/{pid}/restore")
+def restore_project(pid: str):
+    try:
+        project = project_service.restore_project(pid)
+    except FileExistsError:
+        raise HTTPException(409, "A project with this id already exists")
+    if project is None:
+        raise HTTPException(404, "Not in the trash")
+    return project                              # flows come back inactive: nothing to schedule
+
+
+@router.delete("/trash/{pid}", status_code=204)
+def purge_project(pid: str):
+    if not project_service.purge_project(pid):
+        raise HTTPException(404, "Not in the trash")
+
+
+@router.get("/{pid}/delete-preview")
+def delete_preview(pid: str, flow_id: str | None = None):
+    """What deleting the project, or one flow of it, would affect."""
+    info = deletion.preview(pid, flow_id)
+    if info is None:
+        raise HTTPException(404, "Project not found")
+    return info
+
+
 @router.get("/{pid}")
 def get_project(pid: str):
     p = project_service.get_project(pid)
@@ -57,25 +92,31 @@ def get_project(pid: str):
 
 @router.put("/{pid}")
 def save_project(pid: str, body: ProjectSave):
-    result = project_service.save_project(pid, body.model_dump(exclude_none=True))
+    # Flows missing from the save are being deleted, however the client removed them.
+    going, staying = deletion.removed_flows(pid, body.flows)
+    try:
+        deletion.check_removal(pid, going)
+    except deletion.Busy as exc:
+        raise HTTPException(409, str(exc))
+    tables = deletion.tables_to_drop(pid, going, staying) if going and body.drop_persisted else []
+
+    result = project_service.save_project(pid, body.model_dump(exclude_none=True, exclude={"drop_persisted"}))
     if not result:
         raise HTTPException(404, "Project not found")
-    # Re-register schedulers for flows that have cron triggers
-    for flow in result.get("flows", []):
-        trigger_node = next(
-            (n for n in flow.get("nodes", []) if n["type"] == "trigger"),
-            None,
-        )
-        if trigger_node:
-            td = trigger_node.get("data", {})
-            if td.get("run_mode") == "schedule" and td.get("cron") and flow.get("active"):
-                register_flow(flow["id"], pid, td["cron"], td.get("timezone", "UTC"))
-            else:
-                unregister_flow(flow["id"])
+    if going:
+        deletion.remove_flows(pid, going, result.get("flows", []), tables)
+    sync_schedules(pid, result.get("flows", []))
     return result
 
 
-@router.delete("/{pid}", status_code=204)
-def delete_project(pid: str):
-    if not project_service.delete_project(pid):
+@router.delete("/{pid}")
+def delete_project(pid: str, drop_persisted: bool = False):
+    """Move the project to the trash, unschedule its flows and delete its
+    cached frames; drop its persisted tables only when asked."""
+    try:
+        result = deletion.delete_project(pid, drop_persisted)
+    except deletion.Busy as exc:
+        raise HTTPException(409, str(exc))
+    if result is None:
         raise HTTPException(404, "Project not found")
+    return result

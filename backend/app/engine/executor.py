@@ -20,7 +20,7 @@ import os
 import logging
 from collections import defaultdict, deque
 
-log_ = logging.getLogger("sfs.engine"), deque
+log_ = logging.getLogger("sfs.engine")
 from typing import Any
 
 import pandas as pd
@@ -1056,7 +1056,15 @@ _register_builtin_engines()
 
 # ── Main async executor ───────────────────────────────────────────────────────
 
-async def execute_flow(
+async def execute_flow(project_id: str, flow: dict, *args, **kwargs) -> list[dict]:
+    """Run a flow (see _execute_flow), registered as live while it runs so
+    deleting its project or flow can be refused meanwhile."""
+    from app.engine.active_runs import tracking
+    with tracking(project_id, flow["id"]):
+        return await _execute_flow(project_id, flow, *args, **kwargs)
+
+
+async def _execute_flow(
     project_id: str,
     flow: dict,
     connection_urls: dict[str, str],

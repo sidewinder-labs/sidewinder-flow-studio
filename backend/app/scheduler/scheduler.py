@@ -79,9 +79,12 @@ async def _run_scheduled(project_id: str, flow_id: str):
     from sqlalchemy import select
 
     project = get_project(project_id)
-    flow = next((f for f in project.get("flows", []) if f.get("id") == flow_id), None)
+    flow = next((f for f in (project or {}).get("flows", []) if f.get("id") == flow_id), None)
     if not flow:
-        log.error(f"Scheduled flow {flow_id} not found in project {project_id}")
+        # Deletion unregisters schedules; this only happens if the project
+        # file was removed by hand. Stop firing rather than fail every time.
+        log.error(f"Scheduled flow {flow_id} not found in project {project_id}; unscheduling it")
+        unregister_flow(flow_id)
         return
     cfg = _trigger_config(flow)
     flow_name = flow.get("name")
@@ -157,6 +160,43 @@ def register_flow(flow_id: str, project_id: str, cron: str, timezone: str = "UTC
 def unregister_flow(flow_id: str):
     if _scheduler.get_job(f"flow:{flow_id}"):
         _scheduler.remove_job(f"flow:{flow_id}")
+
+
+def _schedule_of(flow: dict) -> tuple[str, str] | None:
+    """(cron, timezone) when the flow is active and its trigger is a schedule."""
+    trigger = next((n for n in flow.get("nodes", []) if n.get("type") == "trigger"), None)
+    if not trigger or not flow.get("active"):
+        return None
+    td = trigger.get("data", {})
+    if td.get("run_mode") == "schedule" and td.get("cron"):
+        return td["cron"], td.get("timezone", "UTC")
+    return None
+
+
+def sync_schedules(project_id: str, flows: list[dict], removed_flow_ids=()) -> None:
+    """Make the scheduler match a project's flows: register active scheduled
+    flows, unregister the rest and any flows that were removed."""
+    for flow in flows:
+        sched = _schedule_of(flow)
+        if sched:
+            register_flow(flow["id"], project_id, *sched)
+        else:
+            unregister_flow(flow["id"])
+    for flow_id in removed_flow_ids:
+        unregister_flow(flow_id)
+
+
+def load_all_schedules() -> None:
+    """At startup: schedules live only in memory, so register every project's."""
+    from app.services.project_service import list_projects, get_project
+    for p in list_projects():
+        project = get_project(p["id"])
+        if project:
+            sync_schedules(project["id"], project.get("flows", []))
+
+
+def scheduled_flow_ids() -> set[str]:
+    return {job.id.split(":", 1)[1] for job in _scheduler.get_jobs() if job.id.startswith("flow:")}
 
 
 def get_next_run(flow_id: str) -> str | None:

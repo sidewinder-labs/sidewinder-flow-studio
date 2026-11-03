@@ -99,9 +99,64 @@ def save_project(pid: str, payload: dict) -> dict | None:
     return existing
 
 
+# ── Trash: deleted projects are moved aside, not removed ─────────────────────
+
+def _trash_dir() -> Path:
+    p = _dir() / ".trash"
+    p.mkdir(exist_ok=True)
+    return p
+
+
+def _trash_path(pid: str) -> Path:
+    return _trash_dir() / f"{pid}.json"
+
+
 def delete_project(pid: str) -> bool:
+    """Soft delete: move the project file to projects/.trash/, recording when."""
     p = _path(pid)
     if not p.exists():
         return False
+    data = json.loads(p.read_text())
+    data["deleted_at"] = datetime.now(UTC).isoformat()
+    _trash_path(pid).write_text(json.dumps(data, indent=2))
     p.unlink()
+    return True
+
+
+def list_trash() -> list[dict]:
+    out = []
+    for f in _trash_dir().glob("*.json"):
+        try:
+            d = json.loads(f.read_text())
+            out.append({"id": d["id"], "name": d["name"], "deleted_at": d.get("deleted_at"),
+                        "flows": len(d.get("flows", []))})
+        except Exception:
+            pass
+    return sorted(out, key=lambda d: d.get("deleted_at") or "", reverse=True)
+
+
+def restore_project(pid: str) -> dict | None:
+    """Move a project back from the trash. Its flows come back inactive, so no
+    schedule starts firing until the user turns it on again."""
+    t = _trash_path(pid)
+    if not t.exists():
+        return None
+    if _path(pid).exists():
+        raise FileExistsError(pid)
+    data = json.loads(t.read_text())
+    data.pop("deleted_at", None)
+    for flow in data.get("flows", []):
+        flow["active"] = False
+    data["updated_at"] = datetime.now(UTC).isoformat()
+    _path(pid).write_text(json.dumps(data, indent=2))
+    t.unlink()
+    return data
+
+
+def purge_project(pid: str) -> bool:
+    """Delete a trashed project for good."""
+    t = _trash_path(pid)
+    if not t.exists():
+        return False
+    t.unlink()
     return True
