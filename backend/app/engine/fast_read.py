@@ -83,7 +83,7 @@ def connectorx_uri(url: str, dialect: str) -> str | None:
         if not u.database or u.database == ":memory:":
             return None
         from pathlib import Path
-        return f"sqlite://{Path(u.database).resolve()}"
+        return sqlite_uri(str(Path(u.database).resolve()))
     auth = ""
     if u.username:
         auth = quote(u.username, safe="")
@@ -96,6 +96,13 @@ def connectorx_uri(url: str, dialect: str) -> str | None:
     query = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in u.query.items()
                      if k not in ("driver",))                  # ODBC driver names mean nothing to ConnectorX
     return f"{scheme}://{auth}{host}{port}{db}" + (f"?{query}" if query else "")
+
+
+def sqlite_uri(path: str) -> str:
+    """ConnectorX's form for a SQLite file: the path percent-encoded, as its own
+    ConnectionUrl builds it. A raw Windows path (C:\\…) would be read as a URL
+    host and port."""
+    return f"sqlite://{quote(path)}"
 
 
 def _cx_available() -> bool:

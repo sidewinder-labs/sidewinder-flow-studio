@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 from app.core.config import settings
 from app.engine import executor, fast_read
-from app.engine.fast_read import FastReadError, connectorx_uri, queries
+from app.engine.fast_read import FastReadError, connectorx_uri, queries, sqlite_uri
 
 pytest.importorskip("connectorx")
 
@@ -58,6 +58,8 @@ def test_connectorx_uris():
         "mssql://u:pw@sql:1433/dw?Encrypt=no"
     assert connectorx_uri("mysql+pymysql://u:pw@my/shop", "mysql") == "mysql://u:pw@my/shop"
     assert connectorx_uri("sqlite:////tmp/x.db", "sqlite") == "sqlite:///tmp/x.db"
+    # Windows: the drive letter must not be read as host:port (ConnectorX's own encoding)
+    assert sqlite_uri(r"C:\Users\me\shop.db") == "sqlite://C%3A%5CUsers%5Cme%5Cshop.db"
     assert connectorx_uri("trino://u@t:8080/hive", "trino") is None          # not read by ConnectorX
     assert connectorx_uri("clickhouse+http://u:pw@ch:8123/default", "clickhouse") is None
 
