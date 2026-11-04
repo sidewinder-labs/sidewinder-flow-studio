@@ -204,6 +204,27 @@ def get_example(name: str) -> dict | None:
     return next((e for e in EXAMPLES if e["name"] == name), None)
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+# Functions a plugin adds to node code (like fast_read). Each is injected into
+# every node's scope and listed in the in-app help, from its signature and
+# docstring.
+
+HELPERS: dict[str, dict] = {}
+
+
+def register_helper(*, name: str, func: Callable, category: str = "Plugins",
+                    examples: tuple[dict, ...] = (), source: str = "builtin") -> None:
+    if not name.isidentifier() or name.startswith("_"):
+        raise ValueError(f"Helper name '{name}' must be a public Python identifier")
+    if not callable(func):
+        raise ValueError(f"Helper '{name}': func must be callable")
+    if name in HELPERS:
+        log.warning("Helper '%s' already registered — ignoring duplicate", name)
+        return
+    HELPERS[name] = {"func": func, "category": category, "examples": tuple(examples), "source": source}
+    log.info("Registered helper '%s' (%s)", name, source)
+
+
 def list_engines() -> list[dict]:
     """Serializable engine list for /api/capabilities."""
     out = []
@@ -257,6 +278,14 @@ class RegistryAPI:
         """Ship a ready-made flow: {name?, nodes, edges, imports?} in the saved
         project format. Users start a new project from it."""
         register_example(name=name, flow=flow, description=description, source=self._source)
+
+    def register_helper(self, name: str, func: Callable, *, category: str = "Plugins",
+                        examples: tuple[dict, ...] = ()) -> None:
+        """Add a function to node code, e.g. api.register_helper("my_helper", fn).
+        It appears in every node's scope and in the help panel, documented by
+        its signature and docstring. examples: ({"title", "engine", "code"}, ...)."""
+        register_helper(name=name, func=func, category=category, examples=examples,
+                        source=self._source)
 
     def register_template(self, *, kind: str, name: str, code: str, description: str = "") -> None:
         """Offer starting code for a node type (today: kind="chart")."""

@@ -22,6 +22,17 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 AGENT_MODEL = "claude-sonnet-4-6"
 
 
+def with_helpers(prompt: str) -> str:
+    """Fill {HELPERS} with the injected helpers, from the same reference as the
+    in-app help (so plugin helpers are included and nothing is written twice)."""
+    from app.help.reference import helper_reference
+    lines = [f"  - `{h['signature']}`: {h['summary']}"
+             for h in helper_reference() if h["sfs_specific"]]
+    lines.append("  - `pd` (pandas), `sa` (sqlalchemy). Read databases with fast_read and write with "
+                 "fast_write: far faster than pd.read_sql and df.to_sql.")
+    return prompt.replace("{HELPERS}", "\n".join(lines))
+
+
 REPORT_SYSTEM_PROMPT = """You are a dashboard assistant inside Sidewinder Flow Studio (SFS), a visual ETL tool.
 
 You write Streamlit code for a "Report" node. The code runs inside an existing Streamlit page. Rules:
@@ -60,7 +71,8 @@ POLARS_SYSTEM_PROMPT = """You are a data transformation assistant inside Sidewin
 
 You write Polars code for a "Processor" node running in Polars engine mode. Rules:
 - The incoming data is a polars LazyFrame called `df` (additional inputs: `df2`, `df3`, …; `dfs` is the list)
-- `pl` (polars) is pre-injected; also available: pd, sa, get_engine(name), get_storage(name), vars
+- `pl` (polars) is pre-injected; also (fast_read returns a Polars DataFrame here):
+{HELPERS}
 - Stay LAZY: chain expressions on the LazyFrame (filter, with_columns, group_by/agg, join) — do NOT call collect(); the engine collects with streaming at the end
 - Leave the result in `df` (LazyFrame preferred; a pl.DataFrame is also accepted)
 - Use expression API: pl.col("x"), .str, .dt namespaces; cast dates with pl.col("d").str.to_date() or .cast(pl.Date)
@@ -125,7 +137,8 @@ PROCESSOR_SYSTEM_PROMPT = """You are a data transformation assistant inside Side
 You write Python code for a "Processor" node. Rules:
 - The incoming data is in a pandas DataFrame called `df`
 - If the node has multiple upstream inputs, the 2nd is `df2`, 3rd is `df3`, … and `dfs` is the list of all inputs (use for joins/unions)
-- These are pre-injected and available WITHOUT imports: `pd` (pandas), `sa` (sqlalchemy), `get_engine(connection_name)` (returns a SQLAlchemy engine), `get_storage(connection_name)` (ADLS storage_options), `read_files(folder, pattern, regex=...)` (load many files into one DataFrame), `fast_read(conn, table=... | tables=[...] | sql=..., partition_on=..., partitions=...)` (FAST database read into the node's frame: pandas in pandas nodes, Polars in Polars nodes; use this INSTEAD of pd.read_sql), `read_tables(conn, [tables], schema=...)` (load many tables into one DataFrame), `fast_write(df, conn, table, mode='append'|'replace')` (NATIVE bulk load to a database — use this INSTEAD of df.to_sql for writing, it's far faster), `vars` (dict of global variables)
+- Pre-injected, no imports needed:
+{HELPERS}
 - Your code MUST leave the result in a DataFrame called `df`
 - Write clean, production-quality pandas code
 - Add brief comments explaining each step
@@ -210,13 +223,13 @@ async def generate_code(
     elif engine == "duckdb":
         system = DUCKDB_SYSTEM_PROMPT
     elif engine == "polars":
-        system = POLARS_SYSTEM_PROMPT
+        system = with_helpers(POLARS_SYSTEM_PROMPT)
     elif engine == "sql":
         system = SQL_PUSHDOWN_SYSTEM_PROMPT
     elif engine == "ibis":
         system = IBIS_SYSTEM_PROMPT
     else:
-        system = PROCESSOR_SYSTEM_PROMPT
+        system = with_helpers(PROCESSOR_SYSTEM_PROMPT)
     user_message = _build_context_message(request, schema, sample)
 
     # ── 1. Try the active UI-configured provider ──────────────────────────────

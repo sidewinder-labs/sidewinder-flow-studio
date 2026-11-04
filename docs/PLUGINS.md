@@ -339,6 +339,38 @@ added. Ship sample data as package data and read it in the first node with
 `importlib.resources`, so the example works in any install, Docker included.
 Test that each example runs through the executor.
 
+## Helpers (optional)
+
+A plugin can add functions to node code, like the built-in `fast_read`. The
+helper is injected into every node's scope (pandas and Polars nodes, Chart
+nodes) and appears in the in-app help under **SFS helpers**, documented from
+its own signature and docstring:
+
+```python
+def score(df, model: str = "default"):
+    """Score each row with a trained model.
+
+    Args:
+        df: the rows to score.
+        model: which model to use.
+
+    Returns:
+        pandas.DataFrame with a score column
+
+    Example:
+        df = score(df, model="churn")
+    """
+    ...
+
+def register(api):
+    api.register_helper("score", score, category="Machine learning")
+```
+
+Write the docstring in that layout (a one-line summary, then `Args:`,
+`Returns:` and `Example:` sections): users read it in the help panel. Names
+must be public identifiers, and a built-in helper of the same name wins.
+Guard the call with `hasattr(api, "register_helper")` to support SFS before 1.35.
+
 ## Discovering what's installed
 
 `GET /api/capabilities` returns registered engines (with `source`, `tier` and

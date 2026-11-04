@@ -164,6 +164,21 @@ def build_exec_context(
     dialects = dialects or {}
 
     def get_engine(conn_name: str):
+        """A SQLAlchemy engine for one of your saved connections.
+
+        Use it for anything SQLAlchemy can do: run statements, inspect tables,
+        or pass it to pandas. For reading large tables, fast_read is much faster.
+
+        Args:
+            conn_name: the connection's name, as in Meta → Connections.
+
+        Returns:
+            sqlalchemy.Engine
+
+        Example:
+            with get_engine("warehouse").begin() as c:
+                c.exec_driver_sql("TRUNCATE TABLE staging.orders")
+        """
         url = connections.get(conn_name)
         if not url:
             raise ValueError(f"Connection '{conn_name}' not found. Available: {list(connections)}")
@@ -179,6 +194,20 @@ def build_exec_context(
         return sa.create_engine(url, connect_args=ca) if ca else sa.create_engine(url)
 
     def get_storage(conn_name: str) -> dict:
+        """The storage options for an Azure Data Lake connection.
+
+        ADLS is storage, not SQL: pass these options to pandas or Polars when
+        reading or writing abfs:// paths.
+
+        Args:
+            conn_name: the ADLS connection's name.
+
+        Returns:
+            dict of storage_options
+
+        Example:
+            df = pd.read_parquet("abfs://raw/sales.parquet", storage_options=get_storage("lake"))
+        """
         opts = storage.get(conn_name)
         if not opts:
             raise ValueError(
@@ -187,27 +216,56 @@ def build_exec_context(
         return opts
 
     def read_delta(path: str, storage_conn: str | None = None, **kwargs):
-        """Read a Delta Lake table directly to a DataFrame (no query engine).
-        `path` is a local path or object-store URI (s3://, gs://, abfs://).
-        Pass a storage connection name for cloud auth: read_delta(uri, 'Prod ADLS')."""
+        """Read a Delta Lake table into a pandas DataFrame, without a query engine.
+
+        Args:
+            path: a local path or an object-store URI (s3://, gs://, abfs://).
+            storage_conn: optional storage connection name, for cloud credentials.
+            **kwargs: passed to DeltaTable.to_pandas (e.g. columns=[...]).
+
+        Returns:
+            pandas.DataFrame
+
+        Example:
+            df = read_delta("abfs://lake/sales", storage_conn="lake")
+        """
         from deltalake import DeltaTable
         opts = storage.get(storage_conn) if storage_conn else None
         dt = DeltaTable(path, storage_options=opts)
         return dt.to_pandas(**kwargs)
 
     def read_iceberg(table: str, catalog_name: str | None = None, **catalog_props):
-        """Read an Apache Iceberg table directly to a DataFrame (no query engine).
-        `table` is 'namespace.table'. Supply catalog config via catalog_props
-        (e.g. uri=..., type='rest'/'glue'/'sql', or a named catalog in ~/.pyiceberg.yaml)."""
+        """Read an Apache Iceberg table into a pandas DataFrame, without a query engine.
+
+        Args:
+            table: "namespace.table".
+            catalog_name: a catalog named in ~/.pyiceberg.yaml, or None.
+            **catalog_props: catalog settings, e.g. uri=..., type="rest".
+
+        Returns:
+            pandas.DataFrame
+
+        Example:
+            df = read_iceberg("sales.orders", uri="http://rest-catalog:8181", type="rest")
+        """
         from pyiceberg.catalog import load_catalog
         cat = load_catalog(catalog_name, **catalog_props) if catalog_props else load_catalog(catalog_name)
         return cat.load_table(table).scan().to_arrow().to_pandas()
 
     def list_files(folder: str, pattern: str = "*", regex: str | None = None) -> list[str]:
-        """List files in a folder. `pattern` is a glob (e.g. 'export_*.csv').
-        `regex` optionally further-filters basenames (e.g. r'export_\\d{4}-\\d{2}-\\d{2}').
-        Returns sorted absolute paths. In Docker, `folder` must be a path the
-        container can see (mount it as a volume)."""
+        """List the files in a folder that match a pattern.
+
+        Args:
+            folder: the folder. In Docker it must be mounted into the container.
+            pattern: a glob, e.g. "export_*.csv" (default: every file).
+            regex: an optional regular expression the file name must also match.
+
+        Returns:
+            list[str] of absolute paths, sorted
+
+        Example:
+            paths = list_files("/data/imports", "export_*.csv", regex=r"\\d{4}-\\d{2}-\\d{2}")
+        """
         import glob as _glob, os as _os, re as _re
         paths = sorted(_glob.glob(_os.path.join(folder, pattern)))
         if regex:
@@ -217,11 +275,25 @@ def build_exec_context(
 
     def read_files(folder: str, pattern: str = "*", regex: str | None = None,
                    reader=None, add_source_col: str | None = "_source_file", **read_kwargs):
-        """Load every matching file into one concatenated DataFrame.
-        Auto-detects csv/parquet/json/xlsx by extension unless `reader` is given
-        (a callable like pd.read_csv). Adds a column with the source filename by
-        default. Example: read_files('/data/imports', 'export_*.csv',
-        regex=r'\\d{4}-\\d{2}-\\d{2}')."""
+        """Load every matching file in a folder into one pandas DataFrame.
+
+        The format comes from each file's extension (csv, parquet, json, xlsx)
+        unless you pass a reader. A column names the file each row came from.
+
+        Args:
+            folder: the folder. In Docker it must be mounted into the container.
+            pattern: a glob, e.g. "export_*.csv".
+            regex: an optional regular expression the file name must also match.
+            reader: a function to read one file, e.g. pd.read_csv (optional).
+            add_source_col: name of the file-name column, or None for none.
+            **read_kwargs: passed to the reader, e.g. sep=";".
+
+        Returns:
+            pandas.DataFrame
+
+        Example:
+            df = read_files("/data/imports", "export_*.csv", sep=";")
+        """
         import os as _os
         paths = list_files(folder, pattern, regex)
         if not paths:
@@ -260,35 +332,75 @@ def build_exec_context(
                   tables: list[str] | None = None, sql: str | None = None,
                   schema: str | None = None, partition_on: str | None = None,
                   partitions: int | None = None):
-        """Read from a database connection, fast. Give exactly one of table=,
-        tables= (concatenated, with a `_source_table` column) or sql=.
-        partition_on= a numeric column splits the read into `partitions`
-        (default 4) parallel slices. Returns a DataFrame of the node's engine:
-        pandas here, Polars in a Polars node."""
+        """Read from a database connection, fast, into this engine's DataFrame.
+
+        Reads straight into Arrow (ConnectorX, or ClickHouse returning Arrow) and
+        returns a pandas DataFrame in a pandas node and a Polars DataFrame in a
+        Polars node, so the same line works in both. Much faster than pd.read_sql.
+
+        Args:
+            connection_name: the connection's name.
+            table: one table, e.g. "public.orders".
+            tables: several tables, stacked, with a _source_table column.
+            sql: a SELECT query.
+            schema: prefixed to table names that have none.
+            partition_on: a numeric column; the read is split into parallel slices.
+            partitions: how many slices (default 4).
+
+        Returns:
+            pandas.DataFrame, or polars.DataFrame in a Polars node
+
+        Example:
+            df = fast_read("warehouse", sql="SELECT * FROM orders WHERE paid", partition_on="id", partitions=8)
+        """
         arrow, _ = _fast_read_arrow(connection_name, table=table, tables=tables, sql=sql,
                                     schema=schema, partition_on=partition_on, partitions=partitions)
         return arrow.to_pandas()
 
     def read_tables(connection_name: str, table_names: list[str],
                     schema: str | None = None, add_source_col: str | None = "_source_table"):
-        """Load and concatenate several tables from one connection into a single
-        pandas DataFrame. Example: read_tables('Prod PG', ['daily_a','daily_b'], schema='sales')."""
+        """Load several tables from one connection and stack them into one pandas DataFrame.
+
+        Built on fast_read; prefer fast_read(conn, tables=[...]) in new code.
+
+        Args:
+            connection_name: the connection's name.
+            table_names: the tables to read.
+            schema: prefixed to the table names (optional).
+            add_source_col: name of the column holding each row's table, or None.
+
+        Returns:
+            pandas.DataFrame
+
+        Example:
+            df = read_tables("warehouse", ["daily_a", "daily_b"], schema="sales")
+        """
         arrow, _ = _fast_read_arrow(connection_name, tables=list(table_names), schema=schema,
                                     source_col=add_source_col)
         return arrow.to_pandas()
 
     def fast_write(df, connection_name: str, table: str,
                    mode: str = "append", **kwargs) -> int:
-        """
-        Bulk-load a DataFrame into a target using the database's NATIVE fast path
-        where available, falling back to a batched to_sql otherwise.
+        """Bulk-load a DataFrame into a table, with the database's own fast loader.
 
-        Fast paths: postgresql (COPY), clickhouse (native insert),
-        iceberg via a Trino/iceberg connection (pyiceberg file append).
-        mode: 'append' | 'replace'  (replace truncates/overwrites first).
+        PostgreSQL COPY, ClickHouse native insert, SQL Server fast_executemany,
+        MySQL/StarRocks/Doris and Oracle batched inserts, Iceberg via pyiceberg;
+        a batched to_sql for anything else. Far faster than df.to_sql. Accepts
+        pandas, Polars (also lazy) and Arrow. Creates the table if it is missing.
 
-        Returns the number of rows written. Far faster than df.to_sql() for
-        large volumes because it avoids row-by-row INSERT statements.
+        Args:
+            df: the data to write.
+            connection_name: the target connection's name.
+            table: the table, e.g. "public.orders".
+            mode: "append" (default) or "replace" (empties the table first).
+            recreate: True drops and recreates the table (replace keeps its definition).
+            chunk_rows: rows per batch for the streaming loaders.
+
+        Returns:
+            int: the number of rows written
+
+        Example:
+            fast_write(df, "warehouse", "public.orders", mode="replace")
         """
         dialect = dialects.get(connection_name, "")
         schema, name = _split_table(table)
@@ -511,6 +623,10 @@ def build_exec_context(
         "fast_write": fast_write,
         "vars": variables,
     }
+    # Helpers added by plugins (api.register_helper); built-in names win.
+    from app.engine.registry import HELPERS
+    for name, h in HELPERS.items():
+        ctx_out.setdefault(name, h["func"])
     return ctx_out
 
 

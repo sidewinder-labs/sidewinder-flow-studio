@@ -13,6 +13,8 @@ from pydantic import BaseModel
 
 from app.engine import executor as _executor  # noqa: F401 — registers builtins
 from app.engine.registry import ENGINES, list_engines, list_examples, list_templates, loaded_plugins
+from app.help.examples import list_examples as list_snippets
+from app.help.reference import helper_reference
 
 router = APIRouter()
 
@@ -32,6 +34,10 @@ async def get_capabilities():
         "plugins": loaded_plugins(),
         "templates": list_templates(),
         "examples": list_examples(),
+        # In-app help: the function reference (from the helpers' own signatures
+        # and docstrings) and ready-to-insert code examples
+        "helpers": helper_reference(),
+        "snippets": list_snippets(),
         "features": {
             # Optional capabilities the UI can gate on
             "enterprise_engines": any(
