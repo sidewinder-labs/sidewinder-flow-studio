@@ -10,6 +10,34 @@ export interface DeletePreview {
   running: boolean
 }
 
+/** One entry of the function reference (generated from the helpers' docstrings). */
+export interface HelperDoc {
+  name: string
+  signature: string
+  category: string
+  engines: string[]
+  sfs_specific: boolean
+  source: string            // builtin | plugin:<dist> | the library (pandas, Polars, DuckDB)
+  link: string | null
+  summary: string
+  description: string
+  args: { name: string; doc: string }[]
+  returns: string
+  example: string
+}
+
+/** A ready-to-insert code example for one engine. */
+export interface Snippet {
+  id: string
+  topic: string
+  topic_title: string
+  engine: string
+  title: string
+  note?: string
+  code: string
+  needs: string[]
+}
+
 export interface TrashedProject { id: string; name: string; deleted_at: string | null; flows: number }
 
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -99,6 +127,8 @@ export const api = {
     plugins: { name: string; loaded: boolean; error?: string }[]
     templates?: { kind: string; name: string; code: string; description: string; source: string }[]
     examples?: { name: string; description: string; source: string }[]
+    helpers?: HelperDoc[]
+    snippets?: Snippet[]
     features: Record<string, boolean>
   }>('/capabilities/'),
 

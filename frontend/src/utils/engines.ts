@@ -3,7 +3,7 @@
  * the engine list (node cards, the processor panel) or the feature flags.
  */
 import { useEffect, useState } from 'react'
-import { api } from './api'
+import { api, type HelperDoc, type Snippet } from './api'
 
 export type EngineInfo = Awaited<ReturnType<typeof api.capabilities>>['engines'][number] & {
   params?: { key: string; label?: string; type?: string; default?: unknown; required?: boolean;
@@ -14,6 +14,7 @@ export type EngineInfo = Awaited<ReturnType<typeof api.capabilities>>['engines']
 
 let cache: EngineInfo[] | null = null
 let features: Record<string, boolean> | null = null
+let help: { helpers: HelperDoc[]; snippets: Snippet[] } | null = null
 let pending: Promise<EngineInfo[]> | null = null
 
 export function loadEngines(): Promise<EngineInfo[]> {
@@ -21,6 +22,7 @@ export function loadEngines(): Promise<EngineInfo[]> {
   pending ??= api.capabilities()
     .then((c) => {
       features = c?.features ?? {}
+      help = { helpers: c?.helpers ?? [], snippets: c?.snippets ?? [] }
       return (cache = (c?.engines ?? []) as EngineInfo[])
     })
     .catch(() => { pending = null; return [] })
@@ -65,4 +67,15 @@ export function paramSummary(engine: EngineInfo | undefined, data: Record<string
     parts.push(`${p.label ?? p.key}: ${v}`)
   }
   return parts.join(' · ')
+}
+
+/** The function reference and examples for the help panel; empty until loaded. */
+export function useHelpData(): { helpers: HelperDoc[]; snippets: Snippet[] } {
+  const [h, setH] = useState(help ?? { helpers: [], snippets: [] })
+  useEffect(() => {
+    let live = true
+    if (!help) loadEngines().then(() => { if (live && help) setH(help) })
+    return () => { live = false }
+  }, [])
+  return h
 }

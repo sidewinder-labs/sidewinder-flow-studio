@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import Editor from '@monaco-editor/react'
 import { useStore } from '@/store'
+import { useHelpData } from '@/utils/engines'
+import { openHelp } from '@/components/help/HelpPanel'
 
 const DEFAULT_IMPORTS = 'import pandas as pd\nimport sqlalchemy as sa\n'
 const FUNCTIONS_HINT = `# Define reusable functions here — they're available in EVERY node of this flow.
@@ -22,6 +24,7 @@ const FUNCTIONS_HINT = `# Define reusable functions here — they're available i
 
 export function ImportsPanel() {
   const { activeProject, activeFlowId, updateFlowImports, updateFlowShared } = useStore()
+  const { helpers } = useHelpData()
   const flow = activeProject?.flows.find((f) => f.id === activeFlowId)
   const [tab, setTab] = useState<'imports' | 'functions'>('imports')
   const [imports, setImports] = useState(flow?.imports ?? DEFAULT_IMPORTS)
@@ -81,14 +84,13 @@ export function ImportsPanel() {
       <button className="btn-pri w-full shrink-0" onClick={save}>Save Preamble</button>
 
       <div className="text-xs text-muted bg-canvas-bg rounded-lg border border-canvas-border p-3 space-y-1 shrink-0">
-        <div className="text-slate-300 font-medium mb-1">Injected in every node:</div>
+        <div className="text-slate-300 font-medium mb-1">Injected in every node (click for help):</div>
         <div><code className="text-accent">pd</code>, <code className="text-accent">sa</code> — pandas, sqlalchemy</div>
-        <div><code className="text-accent">get_engine(name)</code> / <code className="text-accent">get_storage(name)</code></div>
-        <div><code className="text-accent">read_files(folder, pattern, regex=…)</code> — load many files → one df</div>
-        <div><code className="text-accent">list_files(folder, pattern, regex=…)</code> — list matching paths</div>
-        <div><code className="text-accent">fast_read(conn, table=… | tables=[…] | sql=…)</code> — fast database read (use instead of pd.read_sql)</div>
-        <div><code className="text-accent">read_tables(conn, [tables], schema=…)</code> — load many tables → one df</div>
-        <div><code className="text-accent">vars</code> — global variables dict</div>
+        {helpers.filter((h) => h.sfs_specific).map((h) => (
+          <button key={h.name} className="block text-left hover:text-slate-300" onClick={() => openHelp(`helper:${h.name}`)}>
+            <code className="text-accent">{h.name}</code> — {h.summary}
+          </button>
+        ))}
       </div>
     </div>
   )

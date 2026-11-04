@@ -1,3 +1,4 @@
+import { HelpPanel } from '@/components/help/HelpPanel'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { TopBar }     from '@/components/ui/TopBar'
 import { Canvas }     from '@/components/canvas/Canvas'
@@ -86,6 +87,7 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden">
       <TopBar />
+      <HelpPanel />
       {welcome && <DesktopWelcome info={welcome} onClose={() => setWelcome(null)} />}
       {view === 'explore' && (
         <Suspense fallback={<div className="flex-1 p-6 text-sm text-muted">Loading Explore…</div>}>

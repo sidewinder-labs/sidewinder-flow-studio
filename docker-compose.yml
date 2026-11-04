@@ -41,8 +41,9 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      # The repository root, so the build can bundle docs/ into the help panel
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: flow-studio-frontend
     restart: unless-stopped
     ports:

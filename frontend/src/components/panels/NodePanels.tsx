@@ -15,8 +15,10 @@ import { EngineParams } from './EngineParams'
 import { ViewAsPython } from './ViewAsPython'
 import { AgentBox } from './AgentBox'
 import Editor from '@monaco-editor/react'
-import { RefreshCw, Save, BookmarkPlus, Compass } from 'lucide-react'
+import { RefreshCw, Save, BookmarkPlus, Compass, HelpCircle } from 'lucide-react'
 import { openNodeInExplore } from '@/components/nodes/ReportNodes'
+import { useInsertTarget } from '@/components/help/insert'
+import { openHelp } from '@/components/help/HelpPanel'
 
 const EDITOR_OPTS = {
   minimap: { enabled: false },
@@ -196,34 +198,16 @@ export function TriggerPanel({ nodeId }: { nodeId: string }) {
 
 // ── Processor panel ───────────────────────────────────────────────────────────
 
-const PROCESSOR_HINT = `# Incoming DataFrame is available as \`df\`
+const PROCESSOR_HINT = `# Incoming DataFrame is available as \`df\`; leave the result in \`df\`.
 # Multiple inputs (joins/unions): 2nd upstream = \`df2\`, 3rd = \`df3\`, … (\`dfs\` = list of all)
 #   df = df.merge(df2, on='key', how='left')     # join
 #   df = pd.concat(dfs, ignore_index=True)       # union all inputs
-# Always available without importing:
-#   pd         — pandas
-#   sa         — sqlalchemy
-#   get_engine(name)  — returns SQLAlchemy engine by connection name
-#   get_storage(name) — ADLS storage_options dict for abfs:// paths
-#   read_delta(path, storage_conn=None)  — Delta Lake table → DataFrame
-#   read_iceberg("ns.table", ...)         — Iceberg table → DataFrame
-#   read_files(folder, pattern, regex=…) — load many files → one DataFrame
-#   list_files(folder, pattern, regex=…) — list matching file paths
-#   fast_read(conn, table=…|tables=[…]|sql=…, partition_on=…) — FAST read to
-#     this engine's frame (pandas here, Polars in a Polars node) — use, not pd.read_sql
-#   read_tables(conn, [tables], schema=…)— load many tables → one DataFrame
-#   fast_write(df, conn, table, mode='append'|'replace') — NATIVE bulk load
-#     (Postgres/ClickHouse/SQLServer/MySQL/Oracle/Iceberg) — far faster than to_sql
-#     creates the table if missing; recreate=True rebuilds it
-#   vars       — global variables dict
 #
-# Examples:
-# engine = get_engine("postgres_local")
-# df = pd.read_sql("SELECT * FROM employees.employee LIMIT 1000", engine)
+# pd, sa and the SFS helpers need no import: fast_read, fast_write,
+# get_engine, read_files, vars, …  Press F1 for all of them, with examples.
 #
-# df['tenure_years'] = (pd.Timestamp.today() - pd.to_datetime(df['hire_date'])).dt.days // 365
+# df = fast_read("postgres_local", table="employees.employee")
 # df = df[df['gender'] == 'F']
-# df = df.groupby('dept_name').agg({'amount': 'mean'}).reset_index()
 `
 
 const POLARS_HINT = `# Polars engine: \`df\` is a LazyFrame scanned from the upstream frame.
@@ -359,6 +343,15 @@ export function ProcessorPanel({ nodeId }: { nodeId: string }) {
     setEngine(next)
     if (activeFlowId) updateNodeData(activeFlowId, nodeId, { label, code, engine: next, target_connection: targetConn, sql_read_dialect: readDialect })
   }
+  // The help panel's "Insert into node" targets this editor while it is open
+  const editorRef = useInsertTarget({
+    nodeId, kind: 'processor', engine, code,
+    setAll: (next, nextEngine) => {
+      setCode(next)
+      if (nextEngine) setEngine(nextEngine)
+      if (activeFlowId) updateNodeData(activeFlowId, nodeId, { label, code: next, engine: nextEngine ?? engine })
+    },
+  })
   const saveTarget = (c: string) => {
     setTargetConn(c)
     if (activeFlowId) updateNodeData(activeFlowId, nodeId, { target_connection: c })
@@ -410,7 +403,13 @@ export function ProcessorPanel({ nodeId }: { nodeId: string }) {
 
       {/* ── Engine selector (from /api/capabilities — includes plugins) ── */}
       <div className="shrink-0">
-        <label className="label">Engine</label>
+        <div className="flex items-center justify-between">
+          <label className="label">Engine</label>
+          <button className="text-subtle hover:text-accent mb-1" title="How this engine works (F1)"
+                  onClick={() => openHelp(`engine:${engine}`)}>
+            <HelpCircle size={13} />
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           {engineList.map((e) => (
             <button
@@ -581,6 +580,7 @@ export function ProcessorPanel({ nodeId }: { nodeId: string }) {
             defaultLanguage={engineSpec?.language === 'sql' ? 'sql' : 'python'}
             value={code}
             onChange={(v) => setCode(v ?? '')}
+            onMount={(ed) => { editorRef.current = ed }}
             options={{
               ...EDITOR_OPTS,
               placeholder: engine === 'duckdb' ? DUCKDB_HINT : engine === 'polars' ? POLARS_HINT : engine === 'sql' ? SQL_HINT : engine === 'ibis' ? IBIS_HINT
@@ -731,6 +731,13 @@ export function ChartOutPanel({ nodeId }: { nodeId: string }) {
   const [label, setLabel] = useState(data.label ?? 'Chart View')
   const [code,  setCode]  = useState(data.code  ?? '')
   const [saved, setSaved] = useState(false)
+  const editorRef = useInsertTarget({
+    nodeId, kind: 'chart', engine: 'chart', code,
+    setAll: (next) => {
+      setCode(next)
+      if (activeFlowId) updateNodeData(activeFlowId, nodeId, { label, code: next })
+    },
+  })
 
   useEffect(() => {
     const fresh = useStore.getState().activeProject?.flows
@@ -818,6 +825,7 @@ export function ChartOutPanel({ nodeId }: { nodeId: string }) {
           defaultLanguage="python"
           value={code}
           onChange={(v) => setCode(v ?? '')}
+          onMount={(ed) => { editorRef.current = ed }}
           options={{ ...EDITOR_OPTS, placeholder: CHART_HINT } as any}
           theme="vs-dark"
         />

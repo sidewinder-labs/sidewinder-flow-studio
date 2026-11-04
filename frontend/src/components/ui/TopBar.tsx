@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { Play, Save, Plus, FolderOpen, ChevronDown, Square, RefreshCw, Compass, BookOpen, Trash2, RotateCcw, ArrowLeft } from 'lucide-react'
+import { Play, Save, Plus, FolderOpen, ChevronDown, Square, RefreshCw, Compass, BookOpen, Trash2, RotateCcw, ArrowLeft, HelpCircle } from 'lucide-react'
 import { useStore } from '@/store'
 import { api, type TrashedProject } from '@/utils/api'
 import { AboutDialog } from './AboutDialog'
 import { DeleteDialog } from './DeleteDialog'
+import { openHelp } from '@/components/help/HelpPanel'
 
 export function TopBar() {
   const {
@@ -335,6 +336,9 @@ export function TopBar() {
 
       {/* Right actions */}
       <div className="flex items-center gap-2 ml-auto shrink-0">
+        <button className="btn-ghost" onClick={() => openHelp()} title="Help: functions, engines, examples (F1)">
+          <HelpCircle size={15} />
+        </button>
         <button
           className={view === 'explore' ? 'btn-pri gap-1.5' : 'btn-ghost gap-1.5 border border-canvas-border'}
           onClick={() => (view === 'explore' ? closeExplore() : openExplore())}

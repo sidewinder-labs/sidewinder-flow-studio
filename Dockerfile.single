@@ -9,6 +9,8 @@ WORKDIR /frontend
 COPY frontend/package.json ./
 RUN npm install
 COPY frontend/ .
+# The help panel bundles docs/, which must sit next to the frontend, as in the repo
+COPY docs/ /docs/
 # Point API calls to same origin (no proxy needed in single-container mode)
 ENV VITE_API_BASE=""
 RUN npm run build
