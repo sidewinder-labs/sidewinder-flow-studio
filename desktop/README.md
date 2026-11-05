@@ -233,3 +233,13 @@ secrets and the variables `AZURE_SIGNING_ENDPOINT` (e.g.
 `AZURE_SIGNING_PROFILE`. CI signs the backend executable, the app and both
 installers (`trusted-signing-cli`). Not yet tested: needs the account.
 
+**SignPath Foundation (applied for).** Their conditions require a public
+[code signing policy](https://sidewinderlabs.dev/code-signing/) (the site's
+`/code-signing/` page, linked from every page's footer, the download page and
+the README), multi-factor authentication for everyone in a role, manual approval
+of each release, and product name and version on every signed binary:
+`sfs-backend.spec` sets them on the backend executable from `tauri.conf.json`,
+and CI fails if they are missing. Their certificate names *SignPath Foundation*
+as the publisher, not Sidewinder Labs. Once accepted, add their credit line to
+the policy page, and replace the Azure signing steps with their GitHub action.
+

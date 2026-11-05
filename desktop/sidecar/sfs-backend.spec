@@ -6,6 +6,7 @@
 # installed in the running Python, and the frontend built into frontend/dist.
 # Output: dist/sfs-backend/ (the executable plus its _internal/ folder).
 import os
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
@@ -102,12 +103,37 @@ a = Analysis(
 # which makensis can't open.
 a.datas = [entry for entry in a.datas if "tests" not in Path(entry[0]).parts]
 pyz = PYZ(a.pure)
+
+# Windows: name and version in the executable's properties, the same as the
+# installers' (code signing requires product name and version on every signed
+# binary). Read from tauri.conf.json, so it can't differ from the app's version.
+version_info = None
+if sys.platform == "win32":
+    import json
+    from PyInstaller.utils.win32.versioninfo import (FixedFileInfo, StringFileInfo, StringStruct,
+                                                    StringTable, VarFileInfo, VarStruct, VSVersionInfo)
+    conf = json.loads((ROOT / "desktop" / "src-tauri" / "tauri.conf.json").read_text())
+    ver = conf["version"]                                    # 1.35.0
+    nums = tuple(int(x) for x in ver.split(".")) + (0,)
+    version_info = VSVersionInfo(
+        ffi=FixedFileInfo(filevers=nums, prodvers=nums),
+        kids=[StringFileInfo([StringTable("040904B0", [
+                  StringStruct("CompanyName", conf["bundle"]["publisher"]),
+                  StringStruct("FileDescription", f"{conf['productName']} backend"),
+                  StringStruct("FileVersion", ver),
+                  StringStruct("InternalName", "sfs-backend"),
+                  StringStruct("OriginalFilename", "sfs-backend.exe"),
+                  StringStruct("ProductName", conf["productName"]),
+                  StringStruct("ProductVersion", ver),
+                  StringStruct("LegalCopyright", f"{conf['bundle']['publisher']}, AGPL-3.0"),
+              ])]),
+              VarFileInfo([VarStruct("Translation", [0x0409, 1200])])])
 # macOS release builds: SFS_CODESIGN_IDENTITY (a Developer ID Application
 # identity in the keychain) signs the executable and every collected binary
 # with the hardened runtime, as notarisation requires. Unset: ad-hoc signing.
 codesign_identity = os.environ.get("SFS_CODESIGN_IDENTITY") or None
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="sfs-backend",
-          console=True, strip=False, upx=False,
+          console=True, strip=False, upx=False, version=version_info,
           codesign_identity=codesign_identity,
           entitlements_file=str(Path(SPECPATH) / "entitlements.plist") if codesign_identity else None)
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="sfs-backend")

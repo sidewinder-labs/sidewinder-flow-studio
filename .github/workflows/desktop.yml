@@ -114,6 +114,18 @@ jobs:
       - name: Freeze the backend
         working-directory: desktop/sidecar
         run: pyinstaller --noconfirm sfs-backend.spec
+
+      # Code signing requires the product name and version on every signed binary.
+      - name: Backend executable carries its name and version (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $want = (Get-Content desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $info = (Get-Item desktop/sidecar/dist/sfs-backend/sfs-backend.exe).VersionInfo
+          "ProductName=$($info.ProductName) ProductVersion=$($info.ProductVersion) FileVersion=$($info.FileVersion)"
+          if ($info.ProductName -ne "Sidewinder Flow Studio" -or $info.ProductVersion -ne $want) {
+            throw "sfs-backend.exe version info is missing or wrong (want $want)"
+          }
       - name: Sign the backend executable (Windows)
         if: runner.os == 'Windows' && env.WIN_SIGNING == 'true'
         working-directory: desktop/sidecar
@@ -199,7 +211,7 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" \
-              --notes "Desktop installers. Release notes to follow." ||
+              --notes "Desktop installers. Release notes to follow. Code signing policy: https://sidewinderlabs.dev/code-signing/" ||
             gh release view "$GITHUB_REF_NAME" >/dev/null   # another job created it meanwhile
           gh release upload "$GITHUB_REF_NAME" out/* --clobber
 

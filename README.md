@@ -68,7 +68,8 @@ libraries (PyCaret, scikit-learn…) never disturb the ETL environment
 
 **Desktop app (Windows, Linux):** just for you, on one computer? Download the
 installer from [sidewinderlabs.dev/download](https://sidewinderlabs.dev/download/):
-no Docker or Python needed. See [desktop/README.md](desktop/README.md).
+no Docker or Python needed. See [desktop/README.md](desktop/README.md) and the
+[code signing policy](https://sidewinderlabs.dev/code-signing/).
 
 **Docker (recommended for servers and teams):**
 
