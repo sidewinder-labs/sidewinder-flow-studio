@@ -33,6 +33,127 @@ def decrypt(s: str) -> str:
         ) from None
 
 
+# ── Options (extra_params) with secret values encrypted at rest ──────────────
+# Stored JSON keeps non-secret values as they are and wraps each secret value
+# as {"$enc": "<fernet token>"}, with the same key as passwords.
+
+_ENC = "$enc"
+
+
+def _raw_extras(conn) -> dict:
+    raw = getattr(conn, "extra_params", None)
+    return json.loads(raw) if raw else {}
+
+
+def read_extras(conn) -> dict:
+    """The connection's options with secrets decrypted, for building engines.
+    Raises CredentialError when a secret can't be decrypted."""
+    out = {}
+    for k, v in _raw_extras(conn).items():
+        if isinstance(v, dict) and _ENC in v:
+            try:
+                v = _fernet().decrypt(v[_ENC].encode()).decode()
+            except InvalidToken:
+                raise CredentialError(
+                    f"its stored option '{k}' can't be decrypted — SECRET_KEY has changed since "
+                    "it was saved. Edit the connection and re-enter it, or restore the original "
+                    "SECRET_KEY in .env.") from None
+        out[k] = v
+    return out
+
+
+def _seal(extras: dict) -> str | None:
+    """Options dict → stored JSON, encrypting secret values not yet encrypted."""
+    from app.services.secret_keys import is_secret
+    out = {}
+    for k, v in extras.items():
+        if v in (None, ""):
+            continue
+        if is_secret(k) and not (isinstance(v, dict) and _ENC in v):
+            v = {_ENC: encrypt(str(v))}
+        out[k] = v
+    return json.dumps(out, sort_keys=True) if out else None
+
+
+def options(conn) -> dict:
+    raw = getattr(conn, "options", None)
+    try:
+        return json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+
+
+def needs(conn) -> dict:
+    """Credentials an imported connection still lacks: {"password": bool, "extras": [names]}."""
+    n = options(conn).get("needs") or {}
+    return {"password": bool(n.get("password")), "extras": list(n.get("extras") or [])}
+
+
+def needs_credentials(conn) -> bool:
+    n = needs(conn)
+    return n["password"] or bool(n["extras"])
+
+
+def public(conn) -> dict:
+    """What the API returns: never a password or a secret option's value —
+    only the names of the secret options that are set."""
+    from app.services.secret_keys import is_secret
+    raw = _raw_extras(conn)
+    return {
+        "id": conn.id, "name": conn.name, "dialect": conn.dialect,
+        "host": conn.host, "port": conn.port, "database": conn.database, "username": conn.username,
+        "extra_params": {k: v for k, v in raw.items() if not is_secret(k)} or None,
+        "secret_extras": sorted(k for k in raw if is_secret(k)),
+        "has_password": bool(conn.password_enc),
+        "browser": browser_settings(conn),
+        "needs": needs(conn),
+        "needs_credentials": needs_credentials(conn),
+    }
+
+
+BROWSER_DEFAULTS = {"show_partitions": False, "show_views": True, "show_system": False,
+                    "include_schemas": [], "exclude_schemas": []}
+
+
+def browser_settings(conn) -> dict:
+    """Explore's table browser settings for this connection over the defaults."""
+    b = options(conn).get("browser") or {}
+    return {**BROWSER_DEFAULTS, **{k: v for k, v in b.items() if k in BROWSER_DEFAULTS}}
+
+
+def _set_options(conn, **parts) -> None:
+    o = options(conn)
+    for k, v in parts.items():
+        if v is None:
+            o.pop(k, None)
+        else:
+            o[k] = v
+    conn.options = json.dumps(o, sort_keys=True) if o else None
+
+
+def encrypt_plaintext_extras(sync_conn) -> int:
+    """One-time migration (run at startup, idempotent): encrypt secret option
+    values stored before options were encrypted. Returns how many rows changed."""
+    import sqlalchemy as sa
+    from app.services.secret_keys import is_secret
+    rows = sync_conn.execute(sa.text("SELECT id, extra_params FROM connections "
+                                     "WHERE extra_params IS NOT NULL")).fetchall()
+    changed = 0
+    for cid, raw in rows:
+        try:
+            extras = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(extras, dict):
+            continue
+        if any(is_secret(k) and not (isinstance(v, dict) and _ENC in v) and v not in (None, "")
+               for k, v in extras.items()):
+            sync_conn.execute(sa.text("UPDATE connections SET extra_params = :e WHERE id = :i"),
+                              {"e": _seal(extras), "i": cid})
+            changed += 1
+    return changed
+
+
 def build_url(conn: Connection) -> str:
     """
     Build a SQLAlchemy URL per dialect. Field conventions:
@@ -58,8 +179,7 @@ def build_url(conn: Connection) -> str:
     """
     from urllib.parse import urlencode, quote_plus
 
-    extras: dict = json.loads(conn.extra_params) if conn.extra_params else {}
-    extras = {k: v for k, v in extras.items() if v not in (None, "")}
+    extras = {k: v for k, v in read_extras(conn).items() if v not in (None, "")}
     password = decrypt(conn.password_enc) if conn.password_enc else ""
 
     def userinfo() -> str:
@@ -168,7 +288,7 @@ def get_storage_options(conn: Connection) -> dict:
     host=storage account name, password=account key (encrypted at rest),
     database=default container. extra_params may hold sas_token or
     tenant_id/client_id/client_secret for service-principal auth."""
-    extras: dict = json.loads(conn.extra_params) if conn.extra_params else {}
+    extras: dict = read_extras(conn)
     opts: dict = {"account_name": conn.host}
     if conn.password_enc:
         opts["account_key"] = decrypt(conn.password_enc)
@@ -182,7 +302,7 @@ def get_connect_args(conn: Connection) -> dict:
     """Per-dialect connect_args that don't belong in the URL. Currently Trino:
     http_scheme (http/https), verify (TLS cert check), and BasicAuthentication
     when a username+password are set — mirroring a hand-written create_engine."""
-    extras: dict = json.loads(conn.extra_params) if conn.extra_params else {}
+    extras: dict = read_extras(conn)
     d = conn.dialect
 
     if d == "trino":
@@ -226,8 +346,12 @@ async def create_connection(db: AsyncSession, data: dict) -> Connection:
         database=data.get("database"),
         username=data.get("username"),
         password_enc=encrypt(data["password"]) if data.get("password") else None,
-        extra_params=json.dumps(data["extra_params"]) if data.get("extra_params") else None,
+        extra_params=_seal(data.get("extra_params") or {}),
     )
+    if data.get("browser") or data.get("needs"):
+        _set_options(conn, browser=data.get("browser") or None,
+                     needs=data.get("needs") if (data.get("needs") or {}).get("password")
+                     or (data.get("needs") or {}).get("extras") else None)
     db.add(conn)
     await db.commit()
     await db.refresh(conn)
@@ -238,6 +362,34 @@ async def delete_connection(db: AsyncSession, conn_id: str) -> bool:
     r = await db.execute(delete(Connection).where(Connection.id == conn_id))
     await db.commit()
     return r.rowcount > 0
+
+
+def merge_extras(conn, incoming: dict | None, clear: list[str]) -> str | None:
+    """Options after an edit. The client never sees secret values, so a secret
+    option it doesn't send is kept (like a blank password); one it sends with a
+    value replaces the stored one; names in `clear` are removed. With incoming
+    None, only `clear` applies."""
+    from app.services.secret_keys import is_secret
+    current = _raw_extras(conn)
+    if incoming is None:
+        merged = dict(current)
+    else:
+        merged = {k: v for k, v in current.items() if is_secret(k)}
+        merged.update({k: v for k, v in incoming.items() if v not in (None, "")})
+    for k in clear:
+        merged.pop(k, None)
+    return _seal(merged)
+
+
+def _settle_needs(conn) -> None:
+    """Clear what an imported connection lacked once it has been entered."""
+    n = needs(conn)
+    if not (n["password"] or n["extras"]):
+        return
+    have = _raw_extras(conn)
+    left = {"password": n["password"] and not conn.password_enc,
+            "extras": [k for k in n["extras"] if k not in have]}
+    _set_options(conn, needs=left if (left["password"] or left["extras"]) else None)
 
 
 async def update_connection(db: AsyncSession, conn_id: str, data: dict) -> Connection | None:
@@ -253,14 +405,19 @@ async def update_connection(db: AsyncSession, conn_id: str, data: dict) -> Conne
     # Only replace the password if a new non-empty one was supplied
     if data.get("password"):
         conn.password_enc = encrypt(data["password"])
-    if "extra_params" in data:
-        conn.extra_params = json.dumps(data["extra_params"]) if data.get("extra_params") else None
+    if "extra_params" in data or data.get("clear_secrets"):
+        conn.extra_params = merge_extras(conn, data.get("extra_params", None), data.get("clear_secrets") or [])
+    if "browser" in data:
+        _set_options(conn, browser=data["browser"] or None)
+    _settle_needs(conn)
     await db.commit()
     await db.refresh(conn)
     return conn
 
 
 async def test_connection(conn: Connection) -> dict:
+    if needs_credentials(conn):
+        return {"ok": False, "error": connection_maps([conn])["broken"][conn.name]}
     if conn.dialect == "adls":
         try:
             import adlfs
@@ -268,7 +425,7 @@ async def test_connection(conn: Connection) -> dict:
             fs.ls(conn.database or "")
             return {"ok": True, "error": None}
         except ImportError:
-            return {"ok": False, "error": "adlfs not installed — pip install adlfs"}
+            return {"ok": False, "error": "Azure Data Lake support (adlfs) isn't installed. It is in the Docker image when SFS_EXTRAS includes adls or all-connectors; the desktop app doesn't include it."}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
@@ -311,6 +468,15 @@ def connection_maps(conns) -> dict:
     broken: dict[str, str] = {}
     for c in conns:
         dialects[c.name] = c.dialect
+        if needs_credentials(c):
+            n = needs(c)
+            what = " and ".join(filter(None, ["its password" if n["password"] else "",
+                                              ", ".join(n["extras"]) if n["extras"] else ""]))
+            reason = (f"Connection '{c.name}' was imported without {what}. "
+                      "Edit it in Meta → Connections and enter the credentials.")
+            urls[c.name] = BROKEN_URL_PREFIX + reason
+            broken[c.name] = reason
+            continue
         try:
             urls[c.name] = build_url(c)
         except Exception as exc:

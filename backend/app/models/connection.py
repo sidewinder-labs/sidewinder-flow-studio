@@ -15,5 +15,7 @@ class Connection(Base):
     database: Mapped[str | None] = mapped_column(String(255))
     username: Mapped[str | None] = mapped_column(String(255))
     password_enc: Mapped[str | None] = mapped_column(Text)
-    extra_params: Mapped[str | None] = mapped_column(Text)
+    extra_params: Mapped[str | None] = mapped_column(Text)      # JSON; secret values encrypted
+    # JSON, non-secret: {"browser": {...Explore settings}, "needs": {"password": bool, "extras": [names]}}
+    options: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
