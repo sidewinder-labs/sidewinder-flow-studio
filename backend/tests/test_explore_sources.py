@@ -144,7 +144,8 @@ def client(store, monkeypatch):
 def test_sources_endpoint_lists_without_credentials(client):
     d = client.get("/api/explore/sources").json()
     assert len(d["frames"]) == 1 and len(d["persisted"]) == 1
-    assert d["connections"] == [{"name": "pg", "dialect": "postgresql"}]
+    assert [{k: c[k] for k in ("name", "dialect")} for c in d["connections"]] == [{"name": "pg", "dialect": "postgresql"}]
+    assert set(d["connections"][0]) == {"name", "dialect", "browser"}            # no host, user or secrets
 
 
 def test_schema_endpoint_persist(client):

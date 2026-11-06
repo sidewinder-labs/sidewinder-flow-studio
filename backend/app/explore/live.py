@@ -26,9 +26,6 @@ from app.explore.sources import QueryTimeout, Result, gw_field
 
 log = logging.getLogger("sfs.explore")
 
-# Schemas that hold the database's own catalog, not user data.
-_SYSTEM_SCHEMAS = {"information_schema", "pg_catalog", "pg_toast", "system", "sys", "mysql",
-                   "performance_schema", "INFORMATION_SCHEMA"}
 
 
 class SourceError(ValueError):
@@ -339,22 +336,8 @@ def estimate_rows(engine, dialect: str, schema: str | None, name: str) -> int | 
     return hits[0] if len(hits) == 1 else None
 
 
-def list_tables(engine, dialect: str, limit: int = 2000) -> dict:
-    """Schemas, tables and views of a live connection, with row estimates
-    where the catalog offers them cheaply."""
-    import sqlalchemy as sa
-
-    insp = sa.inspect(engine)
-    est = _estimates(engine, dialect)
-    out, truncated = [], False
-    for schema in insp.get_schema_names():
-        if schema in _SYSTEM_SCHEMAS or schema.startswith("pg_"):
-            continue
-        for kind, names in (("table", insp.get_table_names(schema=schema)),
-                            ("view", insp.get_view_names(schema=schema))):
-            for name in sorted(names):
-                if len(out) >= limit:
-                    truncated = True
-                    break
-                out.append({"schema": schema, "name": name, "kind": kind, "rows": est.get((schema, name))})
-    return {"tables": out, "truncated": truncated}
+def list_tables(engine, dialect: str, limit: int = 2000, settings: dict | None = None) -> dict:
+    """Every visible table and view of a live connection (see catalog.objects)."""
+    from app.explore import catalog
+    from app.services.connection_service import BROWSER_DEFAULTS
+    return catalog.objects(engine, dialect, settings or BROWSER_DEFAULTS, limit=limit)

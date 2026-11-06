@@ -6,12 +6,12 @@ import { GraphicWalker, chartToWorkflow, slateTheme } from '@kanaries/graphic-wa
 import type { IDataQueryPayload, IMutField, IRow, IUIThemeConfig, VizSpecStore } from '@kanaries/graphic-walker'
 import Editor from '@monaco-editor/react'
 import {
-  ArrowLeft, Calendar, ChevronDown, ChevronRight, Code2, Database, Hash, Layers, ListTree, Play, Plus, RefreshCw,
-  Search, Server, Type,
+  ArrowLeft, Calendar, ChevronDown, ChevronRight, Code2, Database, Eye, FolderTree, Grid3x3, Hash, Layers, ListTree,
+  Play, Plus, RefreshCw, Search, Server, Settings2, Table2, Type,
 } from 'lucide-react'
 import { useStore } from '@/store'
 import { api } from '@/utils/api'
-import type { ExploreDrillConfig, ExploreField, ExploreFrame, ExplorePersisted, ExploreSource, ExploreTable } from '@/types'
+import type { BrowserSettings, ExploreDrillConfig, ExploreField, ExploreFrame, ExplorePersisted, ExploreSource, ExploreTable } from '@/types'
 import { CreateNodeDialog, DrillPanel, DrillSettingsDialog } from './ExploreActions'
 import { isLive, sourceKey } from './source'
 
@@ -84,55 +84,188 @@ function SourceItem({ active, label, sub, detail, onClick }: {
   )
 }
 
-/** One live connection: its tables load when it is first expanded. */
+const OBJECT_ICON: Record<ExploreTable['kind'], JSX.Element> = {
+  table: <Table2 size={11} className="text-sky-300 shrink-0" />,
+  view: <Eye size={11} className="text-violet-300 shrink-0" />,
+  materialized_view: <Layers size={11} className="text-violet-300 shrink-0" />,
+  partition: <Grid3x3 size={11} className="text-muted shrink-0" />,
+}
+const KIND_LABEL: Record<ExploreTable['kind'], string> = {
+  table: 'table', view: 'view', materialized_view: 'materialized view', partition: 'partition',
+}
+
+function ObjectItem({ t, connection, active, onPick, showSchema }: {
+  t: ExploreTable; connection: string; active: string | null; onPick: (s: ExploreSource) => void; showSchema?: boolean
+}) {
+  const table = `${t.schema}.${t.name}`
+  const on = active === `table:${connection}:${table}`
+  const sub = `${t.partitioned ? 'partitioned table' : KIND_LABEL[t.kind]}${t.rows != null ? ` · ≈${fmt(t.rows)} rows` : ''}`
+  return (
+    <button onClick={() => onPick({ kind: 'table', connection, table })} title={`${table}\n${sub}`}
+      ref={on ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+      className={`w-full text-left px-2 py-1 rounded-md text-xs flex items-start gap-1.5 transition-colors
+        ${on ? 'bg-accent/15 text-accent' : 'text-slate-300 hover:bg-surface-overlay'}`}>
+      <span className="mt-0.5">{OBJECT_ICON[t.kind] ?? OBJECT_ICON.table}</span>
+      <span className="min-w-0 flex flex-col">
+        <span className="truncate">{showSchema ? table : t.name}</span>
+        <span className="text-[10px] text-muted truncate">{sub}</span>
+      </span>
+    </button>
+  )
+}
+
+/** One schema: its objects load when it is expanded. */
+function SchemaNode({ connection, schema, count, initiallyOpen, active, onPick }: {
+  connection: string; schema: string; count: number | null; initiallyOpen: boolean
+  active: string | null; onPick: (s: ExploreSource) => void
+}) {
+  const mine = !!active && active.startsWith(`table:${connection}:${schema}.`)
+  const [open, setOpen] = useState(initiallyOpen || mine)
+  const [items, setItems] = useState<ExploreTable[] | null>(null)
+  const [truncated, setTruncated] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!open || items || error) return
+    api.explore.tables(connection, { schema })
+      .then((d) => { setItems(d.tables); setTruncated(d.truncated) })
+      .catch((e) => setError(apiError(e)))
+  }, [open, items, error, connection, schema])
+  return (
+    <div>
+      <button className="w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs text-slate-400 hover:bg-surface-overlay"
+        onClick={() => setOpen((o) => !o)}>
+        {open ? <ChevronDown size={10} className="text-muted" /> : <ChevronRight size={10} className="text-muted" />}
+        <FolderTree size={10} className="text-muted shrink-0" />
+        <span className="truncate">{schema}</span>
+        {count != null && <span className="ml-auto text-[10px] text-muted">{count}</span>}
+      </button>
+      {open && (
+        <div className="ml-3 pl-1 border-l border-canvas-border flex flex-col">
+          {!items && !error && <div className="px-2 py-0.5 text-[11px] text-muted">Loading…</div>}
+          {error && <div className="px-2 py-0.5 text-[11px] text-red-400 break-words">{error}</div>}
+          {items && items.length === 0 && <div className="px-2 py-0.5 text-[11px] text-muted">Empty</div>}
+          {items?.map((t) => <ObjectItem key={t.name} t={t} connection={connection} active={active} onPick={onPick} />)}
+          {truncated && <div className="px-2 py-0.5 text-[10px] text-muted">First {items?.length.toLocaleString()} shown: search to find others</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BrowserSettingsForm({ connection, settings, onSaved, onClose }: {
+  connection: string; settings: BrowserSettings; onSaved: (s: BrowserSettings) => void; onClose: () => void
+}) {
+  const [s, setS] = useState(settings)
+  const [inc, setInc] = useState(settings.include_schemas.join(', '))
+  const [exc, setExc] = useState(settings.exclude_schemas.join(', '))
+  const [error, setError] = useState('')
+  const toggle = (k: 'show_partitions' | 'show_views' | 'show_system', label: string, hint: string) => (
+    <label className="flex items-start gap-2" title={hint}>
+      <input type="checkbox" className="mt-0.5" checked={s[k]} onChange={(e) => setS({ ...s, [k]: e.target.checked })} />
+      <span>{label}</span>
+    </label>
+  )
+  const list = (v: string) => v.split(',').map((x) => x.trim()).filter(Boolean)
+  const save = () => api.explore.browserSettings(connection, {
+    ...s, include_schemas: list(inc), exclude_schemas: list(exc),
+  }).then((r) => onSaved(r.settings)).catch((e) => setError(apiError(e)))
+  return (
+    <div className="mx-2 my-1 rounded-lg border border-canvas-border bg-canvas-bg p-2 space-y-1.5 text-[11px] text-slate-300">
+      {toggle('show_partitions', 'Show partitions', 'PostgreSQL partitions and inheritance children. The partitioned parent is always shown.')}
+      {toggle('show_views', 'Show views', 'Views and materialized views')}
+      {toggle('show_system', 'Show system schemas', 'pg_catalog, information_schema, ClickHouse system…')}
+      <div><div className="text-muted">Only these schemas (comma-separated)</div>
+        <input className="input text-[11px] py-0.5 w-full" value={inc} onChange={(e) => setInc(e.target.value)} placeholder="all" /></div>
+      <div><div className="text-muted">Hide these schemas</div>
+        <input className="input text-[11px] py-0.5 w-full" value={exc} onChange={(e) => setExc(e.target.value)} placeholder="none" /></div>
+      {error && <div className="text-red-400">{error}</div>}
+      <div className="text-subtle">Saved with the connection, and exported with it.</div>
+      <div className="flex justify-end gap-1">
+        <button className="btn-ghost text-[11px] px-2 py-0.5" onClick={onClose}>Cancel</button>
+        <button className="btn-pri text-[11px] px-2 py-0.5" onClick={save}>Save</button>
+      </div>
+    </div>
+  )
+}
+
+/** One live connection: schemas load when it is expanded, objects per schema
+ *  on expand, and search runs in the database. */
 function ConnectionTree({ name, dialect, q, active, onPick, onSql }: {
   name: string; dialect: string; q: string; active: string | null
   onPick: (s: ExploreSource) => void; onSql: (connection: string) => void
 }) {
   const mine = !!active && (active.startsWith(`table:${name}:`) || active.startsWith(`sql:${name}:`))
   const [open, setOpen] = useState(mine)
-  const [tables, setTables] = useState<ExploreTable[] | null>(null)
-  const [truncated, setTruncated] = useState(false)
+  const [schemas, setSchemas] = useState<{ schema: string; count: number | null }[] | null>(null)
+  const [settings, setSettings] = useState<BrowserSettings | null>(null)
+  const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [found, setFound] = useState<{ q: string; tables: ExploreTable[]; truncated: boolean } | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [rev, setRev] = useState(0)            // bumped when browser settings change: search again
 
   useEffect(() => { if (mine) setOpen(true) }, [mine])
   useEffect(() => {
-    if (!open || tables || error) return
-    api.explore.tables(name)
-      .then((d) => { setTables(d.tables); setTruncated(d.truncated) })
+    if (!open || schemas || error) return
+    api.explore.schemas(name)
+      .then((d) => { setSchemas(d.schemas); setSettings(d.settings) })
       .catch((e) => setError(apiError(e)))
-  }, [open, tables, error, name])
+  }, [open, schemas, error, name])
 
-  const shown = (tables ?? []).filter((t) => !q || `${t.schema}.${t.name}`.toLowerCase().includes(q))
-  if (q && tables && !shown.length && !name.toLowerCase().includes(q)) return null
+  // Search in the database, not over a list loaded into the browser
+  useEffect(() => {
+    if (!open || q.length < 2) { setFound(null); return }
+    setSearching(true)
+    const t = setTimeout(() => {
+      api.explore.tables(name, { q })
+        .then((d) => setFound({ q, ...d }))
+        .catch((e) => setError(apiError(e)))
+        .finally(() => setSearching(false))
+    }, 300)
+    return () => { clearTimeout(t); setSearching(false) }
+  }, [open, q, name, rev])
+
+  const many = (schemas?.length ?? 0) > 3
 
   return (
     <div>
-      <button className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-slate-300 hover:bg-surface-overlay"
-        onClick={() => setOpen((o) => !o)} title={`${name} (${dialect})`}>
-        {open ? <ChevronDown size={11} className="text-muted" /> : <ChevronRight size={11} className="text-muted" />}
-        <Server size={11} className="text-amber-300 shrink-0" />
-        <span className="truncate">{name}</span>
-        <span className="ml-auto text-[10px] text-muted">{dialect}</span>
-      </button>
+      <div className="flex items-center group">
+        <button className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-slate-300 hover:bg-surface-overlay"
+          onClick={() => setOpen((o) => !o)} title={`${name} (${dialect})`}>
+          {open ? <ChevronDown size={11} className="text-muted" /> : <ChevronRight size={11} className="text-muted" />}
+          <Server size={11} className="text-amber-300 shrink-0" />
+          <span className="truncate">{name}</span>
+          <span className="ml-auto text-[10px] text-muted">{dialect}</span>
+        </button>
+        {open && settings && (
+          <button className="px-1 text-muted hover:text-slate-300 opacity-60 group-hover:opacity-100" title="Browser settings"
+            onClick={() => setEditing((e) => !e)}><Settings2 size={11} /></button>
+        )}
+      </div>
+      {open && editing && settings && (
+        <BrowserSettingsForm connection={name} settings={settings} onClose={() => setEditing(false)}
+          onSaved={(s) => { setSettings(s); setEditing(false); setSchemas(null); setFound(null); setError(null); setRev((r) => r + 1) }} />
+      )}
       {open && (
         <div className="ml-3 pl-1 border-l border-canvas-border flex flex-col gap-0.5">
           <button className="flex items-center gap-1.5 px-3 py-1 text-xs text-accent hover:bg-surface-overlay rounded-md"
             onClick={() => onSql(name)}>
             <Code2 size={11} /> SQL query…
           </button>
-          {!tables && !error && <div className="px-3 py-1 text-[11px] text-muted">Loading tables…</div>}
           {error && <div className="px-3 py-1 text-[11px] text-red-400 break-words">{error}</div>}
-          {tables && tables.length === 0 && <div className="px-3 py-1 text-[11px] text-muted">No tables visible to this login</div>}
-          {shown.map((t) => {
-            const table = `${t.schema}.${t.name}`
-            return (
-              <SourceItem key={table} active={active === `table:${name}:${table}`} label={table}
-                sub={`${t.kind}${t.rows != null ? ` · ≈${fmt(t.rows)} rows` : ''}`}
-                onClick={() => onPick({ kind: 'table', connection: name, table })} />
-            )
-          })}
-          {truncated && <div className="px-3 py-1 text-[10px] text-muted">First 2,000 tables shown — type to filter</div>}
+          {q.length >= 2 ? (<>
+            {searching && !found && <div className="px-3 py-1 text-[11px] text-muted">Searching…</div>}
+            {found && found.tables.length === 0 && <div className="px-3 py-1 text-[11px] text-muted">No tables or views match “{found.q}”</div>}
+            {found?.tables.map((t) => <ObjectItem key={`${t.schema}.${t.name}`} t={t} connection={name} active={active} onPick={onPick} showSchema />)}
+            {found?.truncated && <div className="px-3 py-1 text-[10px] text-muted">First {found.tables.length} matches: type more to narrow</div>}
+          </>) : (<>
+            {!schemas && !error && <div className="px-3 py-1 text-[11px] text-muted">Loading schemas…</div>}
+            {schemas && schemas.length === 0 && <div className="px-3 py-1 text-[11px] text-muted">No schemas visible to this login</div>}
+            {schemas?.map((s) => (
+              <SchemaNode key={s.schema} connection={name} schema={s.schema} count={s.count} initiallyOpen={!many}
+                active={active} onPick={onPick} />
+            ))}
+          </>)}
         </div>
       )}
     </div>
@@ -193,7 +326,7 @@ function SourcePicker({ current, onPick, onSql }: {
       <div className="flex items-center gap-1 p-2">
         <div className="relative flex-1">
           <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
-          <input className="input w-full text-xs py-1 pl-6" placeholder="Filter sources…"
+          <input className="input w-full text-xs py-1 pl-6" placeholder="Search sources and tables…"
             value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
         <button className="btn-ghost px-1.5" onClick={load} title="Refresh sources">

@@ -97,6 +97,12 @@ These are the complete, genuinely useful free product. Nothing here is crippled.
 - ✅ Shared functions / imports preamble (flow-level)
 - ✅ Custom processors (save a processor, reuse via toolbar drag)
 - ✅ Variables (global config dict)
+- ✅ Function library — reusable functions copied into flows, with provenance and deliberate updates
+- ✅ Export / import of flows and projects (`.sfs.json`: new ids, connection mapping,
+  schedules inactive) and of connection metadata (no secrets; imported as *needs credentials*)
+- ✅ Deterministic project files (byte-identical on an unchanged save)
+- ✅ Explore table browser — schemas first, lazy loading, in-database search,
+  PostgreSQL partitions hidden behind their parent
 - ✅ Built-in AI agent — code generation per engine/node type (uses user's own
   provider: Anthropic / Ollama / OpenAI-compatible)
 - ✅ AI Flow Builder — design with AI Start/Step/End notes, "Build with AI"
@@ -107,7 +113,7 @@ These are the complete, genuinely useful free product. Nothing here is crippled.
 - ✅ `AGENTS.md` context file for external AI agents
 
 ### Ops & deployment
-- ✅ Local run (3 processes) and Docker (single / multi-container)
+- ✅ Desktop app (Windows, Linux) and Docker (single / multi-container)
 - ✅ Self-healing data directories, SECRET_KEY encryption
 - ✅ Run history / audit table + Runs panel
 
@@ -145,6 +151,8 @@ Rows marked *Core (open)* are open-core work that enterprise builds on.
 | **Resume from failed node** — scheduled retries re-run only what failed | ⬜ | Core (open) | Today a retry re-runs the whole flow; writes must be idempotent. |
 | **Automated tests + CI** | 🟡 | Core (open) | pytest suite in `backend/tests` (run with `pytest`); CI not set up yet. |
 | **Desktop app** (Electron/Tauri) — education/free tier | ⬜ | Packaging | Independent track. |
+| **Git integration for flows** — flows as files in the organisation's Git repository | ⬜ | Enterprise | Saving stays local and frequent; publishing is deliberate: **Push to Git**, used when a set of changes is finished, shows a diff of everything changed since the last push and asks for a commit message. Pull to update from the remote, branch-per-environment promotion (development → test → production), review through pull requests. Depends on deterministic serialization (done, v1.37). |
+| **Spark pushdown** — run work on the organisation's existing Spark | ⬜ | Enterprise | A PySpark engine whose node code executes on a remote cluster through Spark Connect and returns results as Arrow, plus Spark as an Ibis backend. Results written inside the cluster by default, with Explore-style row caps when pulled back; Kerberos authentication for Hadoop environments. Plain Spark SQL through a Thrift Server dialect may work with the existing SQL pushdown engine and stays in Community. |
 
 ---
 

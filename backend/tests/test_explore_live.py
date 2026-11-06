@@ -139,7 +139,8 @@ def test_list_tables(sqlite):
 
 def test_list_tables_limit(sqlite):
     assert live.list_tables(sqlite, "sqlite", limit=1) == {
-        "tables": [{"schema": "main", "name": "sales", "kind": "table", "rows": None}], "truncated": True}
+        "tables": [{"schema": "main", "name": "sales", "kind": "table", "partitioned": False, "rows": None}],
+        "truncated": True}
 
 
 def test_table_schema_and_query(sqlite):

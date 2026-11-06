@@ -290,7 +290,7 @@ Configure the target (local DuckDB vs. a DB connection) and table name in the Pr
 
 ## Connections (all free)
 
-Add connections in **Meta → Connections**. Passwords are encrypted at rest with your `SECRET_KEY`. Each has a **Test** button.
+Add connections in **Meta → Connections**. Passwords are encrypted at rest with your `SECRET_KEY`, and so are **secret extra options**: any option whose name contains `password`, `passwd`, `token`, `secret`, `key` or `credentials` (`sas_token`, `client_secret`, `private_key`, `api_key`…). Their values are never sent back to the browser: editing a connection lists the stored secret names, keeps each one unless you type a new value, and can remove one. Options stored in plain text before v1.37 are encrypted the first time the new version starts. Each connection has a **Test** button.
 
 Supported dialects and what the fields mean:
 
@@ -315,6 +315,8 @@ eng = get_engine("Prod Postgres")                                              #
 **SQL Server needs Microsoft's ODBC driver** on the machine running SFS for `get_engine`, writing (`fast_write`), the SQL engine and Explore: install **ODBC Driver 18 for SQL Server** ([Windows, Linux, macOS](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server)) and set `driver=ODBC Driver 18 for SQL Server` in the connection's extra options. Without it, the connection test fails with an error naming the missing driver. `fast_read` and the Database read node don't need it: they reach SQL Server through ConnectorX, which speaks its protocol directly.
 
 **In the desktop app**, the drivers for PostgreSQL, MySQL/MariaDB (and StarRocks, Doris), SQL Server, Oracle, ClickHouse, Trino and SQLite are built in. Snowflake, BigQuery, Redshift, Databricks, Druid, Azure Data Lake, Delta and Iceberg need the server edition (Docker). On the desktop, a database on your own computer is at `localhost`, not `host.docker.internal`.
+
+**Export and import connections** (Meta → Connections → *Export connections*): one file with each connection's name, dialect, host, port, database, username, non-secret options and Explore browser settings, plus your variables. It never holds a password or a secret option. Importing on another machine creates each connection marked **needs credentials** (a node using it fails with that message, not a login error) until you edit it and enter what it lacks. A name that already exists can be skipped, overwritten (the password and secret options stored here are kept), or imported under a new name.
 
 **Azure Data Lake is storage, not SQL** — use `get_storage()`:
 ```python
@@ -349,7 +351,7 @@ cutoff = vars["reporting_start_date"]
 df = pd.read_sql(f"SELECT * FROM t WHERE d >= '{cutoff}'", get_engine("Prod Postgres"))
 ```
 
-Treat variables as non-secret config, not a secrets store (use encrypted Connections for credentials).
+Treat variables as non-secret config, not a secrets store (use encrypted Connections for credentials). Variables are plain text, and they travel with *Export connections*.
 
 ---
 
@@ -363,7 +365,7 @@ Flow is review-before-insert: it shows the code, notes whether it had your schem
 
 Configure providers in the UI (keys encrypted at rest). Two-tier setup works nicely:
 
-- **Local** — Ollama with e.g. `qwen2.5-coder:7b`. No key, runs offline. Base URL: `http://localhost:11434` when the backend runs directly on your machine; `http://host.docker.internal:11434` when it runs in Docker. In the Docker case Ollama must also listen beyond loopback — it binds `127.0.0.1` by default, which containers can't reach — so start it with `OLLAMA_HOST=0.0.0.0:11434 ollama serve` (or set that variable in its systemd unit), and keep port 11434 closed to your network in the firewall, since Ollama has no authentication.
+- **Local** — Ollama with e.g. `qwen2.5-coder:7b`. No key, runs offline. Base URL: `http://localhost:11434` in the desktop app; `http://host.docker.internal:11434` when it runs in Docker. In the Docker case Ollama must also listen beyond loopback — it binds `127.0.0.1` by default, which containers can't reach — so start it with `OLLAMA_HOST=0.0.0.0:11434 ollama serve` (or set that variable in its systemd unit), and keep port 11434 closed to your network in the firewall, since Ollama has no authentication.
 - **Premium** — Anthropic Claude with an API key, or any OpenAI-compatible endpoint.
 
 Toggle the active provider with one click; the AgentBox shows which provider generated each snippet. Also supports a legacy `ANTHROPIC_API_KEY` in `.env` as a fallback.
@@ -382,6 +384,8 @@ Toggle the active provider with one click; the AgentBox shows which provider gen
 - a SQL source must be a single SELECT — anything else is refused before it reaches the database
 - date filters are sent as plain ranges on the column, so indexes and partition pruning still apply
 - **use read-only credentials for exploration connections.** A ClickHouse user with `readonly = 1` cannot change any setting, so its timeout falls back to SFS's own; `readonly = 2` keeps the user read-only and lets the server enforce it
+
+**Browsing a large database.** Opening a connection lists its schemas first (collapsed when there are more than three); a schema's tables and views load when you open it. Typing in the search box searches table and schema names *in the database* across all schemas of each open connection, so a catalogue of thousands of tables never loads into the browser. Tables, views, materialized views and partitions have their own icons. PostgreSQL lists every declarative partition as a table; Explore hides partitions (and legacy inheritance children) and shows the partitioned parent, the table you query, with the row estimate of all its partitions. The settings icon beside an open connection changes this per connection: *show partitions* (off), *show views* (on, including materialized views), *show system schemas* (off: `pg_catalog`, `information_schema`, ClickHouse `system`…) and lists of schemas to show only, or to hide. The settings are saved with the connection and export with it.
 
 Median is exact on PostgreSQL, ClickHouse and DuckDB, approximate on Trino, and not offered on MySQL or SQL Server, which have no median aggregate. Dates are bucketed as stored (no time-zone shift); change *Display offset* in a chart's config if your timestamps are in UTC and you want local days.
 
@@ -406,7 +410,7 @@ st.bar_chart(df.groupby('dept_name')['amount'].mean())
 st.dataframe(df)
 ```
 
-See INSTALLATION.md for starting the viewer (a third terminal locally, or `--profile reports` in Docker).
+The viewer runs in Docker: start it with `docker compose --profile reports up -d` (see INSTALLATION.md).
 
 ---
 
@@ -450,6 +454,22 @@ On the **Trigger** node, switch Run Mode to **Schedule** and set a cron expressi
 - **Run history / audit** — every run and retry recorded, visible in **Meta → Runs** (status, trigger, attempt, duration, node counts, errors)
 
 A schedule runs only while its flow is **active** (the dot on the flow tab). Schedules are loaded when the backend starts, so they survive restarts.
+
+---
+
+## Moving flows and projects between machines
+
+**Export**: right-click a flow tab → *Export flow*, or hover a project in the project picker → the download icon. You get one `<name>.sfs.json` file holding the flows (nodes, edges, code, imports, functions, settings), the definitions of the custom processors they use, and a manifest of what they need: connection names, custom processors, and plugin engines with their versions. It never holds the frame cache, persisted data, credentials or run history. Exporting the same flows twice gives the same file.
+
+**Import**: in the project picker, *Import* (as a new project) or *Import flows* (into the open project). SFS shows what the file needs first:
+
+- **Connections not found here** each get a dropdown: map it to one of your connections (nodes and code that name it are rewritten), or leave it unresolved, and nodes using it show *connection not found* until you add it.
+- **Plugin engines not installed** are listed by name and version. Their nodes keep their engine and run on pandas until the plugin is installed, like any unknown engine.
+- **Custom processors** in the file that you don't have are added to your toolbar.
+
+Every id (project, flows, nodes, edges) is new, so an import never collides with what you have. **Imported flows come in turned off**, so no schedule starts until you turn it on. A file from a newer SFS is refused with a message naming its version; files from older versions are upgraded as they are read.
+
+**Project files are deterministic.** Saving a flow you haven't changed writes the same bytes: sorted keys, nodes and edges ordered by id, positions in whole pixels, code as plain multi-line strings, and no canvas state (selection, drag, measured sizes). Exports diff cleanly, and so will flows kept in Git.
 
 ---
 

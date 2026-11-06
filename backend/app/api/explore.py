@@ -1,7 +1,9 @@
 """Explore API — Graphic Walker server-side computation.
 
     GET  /api/explore/sources                cached frames, persisted tables, connections
-    GET  /api/explore/tables  ?connection=…  schemas, tables and views of a live connection
+    GET  /api/explore/schemas ?connection=…  visible schemas of a live connection
+    GET  /api/explore/tables  ?connection=…[&schema=…|&q=…]  tables and views (one schema, or a search)
+    PUT  /api/explore/browser-settings { connection, settings }
     GET  /api/explore/schema  ?kind=frame&project_id=…&node_id=…
                               ?kind=persist&table=…
                               ?kind=table&connection=…&table=…
@@ -21,9 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.engine.executor import SQLGLOT_DIALECTS
-from app.explore import drill, live, nodegen, sources
+from app.explore import catalog, drill, live, nodegen, sources
 from app.explore.compiler import CompileError
-from app.services.connection_service import connection_maps, list_connections
+from app.services.connection_service import (BROWSER_DEFAULTS, browser_settings, connection_maps,
+                                             list_connections, update_connection)
 
 router = APIRouter()
 
@@ -112,17 +115,58 @@ def _db_error(prefix: str, exc: Exception) -> HTTPException:
 async def list_sources(db: AsyncSession = Depends(get_db)):
     out = await run_in_threadpool(sources.list_cached)
     # Names and dialects only — credentials never leave the connection service.
-    out["connections"] = [{"name": c.name, "dialect": c.dialect} for c in await list_connections(db)]
+    # Browser settings are non-secret (they export with the connection).
+    out["connections"] = [{"name": c.name, "dialect": c.dialect, "browser": browser_settings(c)}
+                          for c in await list_connections(db)]
     return out
 
 
-@router.get("/tables")
-async def list_tables(connection: str, db: AsyncSession = Depends(get_db)):
+async def _browser(db: AsyncSession, name: str) -> dict:
+    c = next((c for c in await list_connections(db) if c.name == name), None)
+    return browser_settings(c) if c else dict(BROWSER_DEFAULTS)
+
+
+@router.get("/schemas")
+async def list_schemas(connection: str, db: AsyncSession = Depends(get_db)):
+    """Schemas first; their objects load on expand (GET /tables?schema=)."""
     eng, dialect = await _engine(db, connection)
+    s = await _browser(db, connection)
     try:
-        return await run_in_threadpool(live.list_tables, eng, dialect)
+        return {"schemas": await run_in_threadpool(catalog.schemas, eng, dialect, s), "settings": s}
+    except Exception as exc:
+        raise _db_error(f"Could not list schemas on {connection}", exc)
+
+
+@router.get("/tables")
+async def list_tables(connection: str, schema: str | None = None, q: str | None = None,
+                      db: AsyncSession = Depends(get_db)):
+    """Objects of one schema, a search across schemas (q, run in the database),
+    or with neither, every visible object (capped)."""
+    eng, dialect = await _engine(db, connection)
+    s = await _browser(db, connection)
+    try:
+        return await run_in_threadpool(catalog.objects, eng, dialect, s, schema, q)
     except Exception as exc:
         raise _db_error(f"Could not list tables on {connection}", exc)
+
+
+class BrowserIn(BaseModel):
+    connection: str
+    settings: dict
+
+
+@router.put("/browser-settings")
+async def put_browser_settings(body: BrowserIn, db: AsyncSession = Depends(get_db)):
+    c = next((c for c in await list_connections(db) if c.name == body.connection), None)
+    if not c:
+        raise HTTPException(404, f"Connection '{body.connection}' not found")
+    clean = {k: body.settings[k] for k in BROWSER_DEFAULTS if k in body.settings}
+    for k in ("include_schemas", "exclude_schemas"):
+        if k in clean:
+            v = clean[k]
+            clean[k] = [x.strip() for x in (v.split(",") if isinstance(v, str) else v or []) if str(x).strip()]
+    c = await update_connection(db, c.id, {"browser": {**browser_settings(c), **clean}})
+    return {"settings": browser_settings(c)}
 
 
 @router.get("/schema")

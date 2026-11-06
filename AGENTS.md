@@ -88,6 +88,16 @@ maps each such function name to {library_id, version, hash, inserted_at} so
 updates can be pulled deliberately. A flow never depends on the library.
 Node = { id, type, position, data{ label, code, engine, … } }.
 Edge = { id, source, target }. Only `df` crosses edges (see contract).
+Files are canonical (app/services/project_service.py `dumps`): sorted keys,
+nodes and edges sorted by id, whole-pixel positions, no canvas state. An
+unchanged save writes identical bytes. Independent branches therefore run in
+node-id order in sequential mode; order work with edges, not canvas position.
+Export/import (`.sfs.json`, app/services/portability.py) regenerates every id
+and imports flows inactive: never key anything on node ids across machines.
+Connection names are the portable reference — a node field of type
+`connection`, `target_connection`, `persist.target`, or a string literal in
+get_engine / get_storage / fast_read / fast_write(df, name) — and imports
+rewrite exactly those when a connection is mapped to another name.
 
 ## Engines are pluggable (registry)
 
