@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.scheduler.scheduler import start_scheduler, stop_scheduler
 from app.api import projects, connections, execute, metadata, ws, agent, runs, custom_processors, capabilities, explore
+from app.api import function_library
 
 
 @asynccontextmanager
@@ -71,7 +72,7 @@ def _quiet_access_log(path: str) -> None:
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Sidewinder Flow Studio API",
-        version="1.35",
+        version="1.36",
         description="Visual Python notebook DAG with scheduling",
         lifespan=lifespan,
     )
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(agent.router,       prefix="/api/agent",       tags=["agent"])
     app.include_router(runs.router,        prefix="/api/runs",        tags=["runs"])
     app.include_router(custom_processors.router, prefix="/api/custom-processors", tags=["custom"])
+    app.include_router(function_library.router, prefix="/api/function-library", tags=["library"])
     app.include_router(capabilities.router, prefix="/api/capabilities", tags=["capabilities"])
     app.include_router(explore.router,     prefix="/api/explore",     tags=["explore"])
     app.include_router(ws.router,          prefix="/ws",              tags=["websocket"])
