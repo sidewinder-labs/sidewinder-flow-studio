@@ -1,13 +1,9 @@
 # Flow Studio — convenience commands
-.PHONY: help dev dev-backend dev-frontend docker docker-single docker-down clean
+.PHONY: help docker docker-single docker-down clean
 
 help:
 	@echo ""
 	@echo "  Flow Studio"
-	@echo ""
-	@echo "  Local development:"
-	@echo "    make dev-backend   Start FastAPI backend (localhost:8000)"
-	@echo "    make dev-frontend  Start Vite dev server (localhost:5173)"
 	@echo ""
 	@echo "  Docker (two containers — nginx + FastAPI):"
 	@echo "    make docker        Build and start"
@@ -20,14 +16,6 @@ help:
 	@echo "    make gen-key       Generate a SECRET_KEY"
 	@echo "    make clean         Remove build artifacts"
 	@echo ""
-
-# ── Local dev ─────────────────────────────────────────────────────────────────
-
-dev-backend:
-	cd backend && python main.py
-
-dev-frontend:
-	cd frontend && npm run dev
 
 # ── Docker two-container ──────────────────────────────────────────────────────
 
@@ -58,7 +46,7 @@ docker-single-down:
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
 gen-key:
-	@python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+	@docker run --rm python:3.13-slim sh -c "pip -q install cryptography 2>/dev/null && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
 
 clean:
 	rm -rf backend/.venv backend/__pycache__ backend/flow_studio.db

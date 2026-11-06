@@ -11,11 +11,8 @@ this file is for developers.
 
 ## Install
 
-```bash
-pip install -e plugins/sfs-plugin-curvefit
-```
-
-The Docker images include it by default.
+The desktop app and the Docker images include it (in Docker it is the default
+`SFS_PLUGINS=curvefit`). To work on it, see [docs/PLUGINS.md](../../docs/PLUGINS.md).
 
 ## Curve fit (`curvefit_fit`)
 

@@ -7,8 +7,7 @@ the SFS backend (the single writer) is never blocked. (DuckDB allows many
 read-only processes OR one writer — a held reader blocks the writer,
 especially on Windows.)
 
-Run locally:   streamlit run app.py
-Run in Docker: docker compose --profile reports up
+Runs as the `reports` service: docker compose --profile reports up -d
 """
 import os
 import time

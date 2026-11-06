@@ -77,26 +77,16 @@ no Docker or Python needed. See [desktop/README.md](desktop/README.md) and the
 git clone https://github.com/sidewinder-labs/sidewinder-flow-studio.git
 cd sidewinder-flow-studio
 cp .env.docker .env
-# generate a key and put it in .env as SECRET_KEY
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# generate a key and put it in .env as SECRET_KEY (or: make gen-key)
+docker run --rm python:3.13-slim sh -c "pip -q install cryptography && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
 
 docker compose up --build -d
 # UI → http://localhost:8080
 ```
 
-**Local (development):**
-
-```bash
-# terminal 1 — backend
-cd backend && pip install -e ".[all-connectors,pushdown]" && python main.py
-
-# terminal 2 — frontend
-cd frontend && npm install && npm run dev
-# UI → http://localhost:5173
-```
-
-Full instructions, including the optional reports viewer and per-connector
-driver extras: **[docs/INSTALLATION.md](docs/INSTALLATION.md)**
+These are the two supported ways to run SFS. Full instructions, including the
+single-container image, the optional report viewer and choosing drivers:
+**[docs/INSTALLATION.md](docs/INSTALLATION.md)**
 
 ---
 
@@ -104,7 +94,7 @@ driver extras: **[docs/INSTALLATION.md](docs/INSTALLATION.md)**
 
 | Doc | What's in it |
 |---|---|
-| [INSTALLATION.md](docs/INSTALLATION.md) | Local, single-container, and multi-container setup |
+| [INSTALLATION.md](docs/INSTALLATION.md) | Desktop app, single-container and multi-container Docker |
 | [CAPABILITIES.md](docs/CAPABILITIES.md) | Every feature with runnable examples |
 | [PLUGINS.md](docs/PLUGINS.md) | Plugin contract for adding engines |
 | [CURVE_FITTING.md](docs/CURVE_FITTING.md) | Fit models to measurements: parameters ± errors, fit plots, View as Python |

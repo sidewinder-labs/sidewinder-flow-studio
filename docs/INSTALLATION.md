@@ -1,86 +1,144 @@
 # Sidewinder Flow Studio (SFS) — Installation Guide
 
-This guide covers three ways to run SFS:
+SFS is installed one of two ways:
 
-1. **Local (terminals)** — best for development and daily personal use
-2. **Single Docker container** — simplest deployment; one image serves everything
-3. **Multi-container Docker (2–3 containers)** — production-style; backend, frontend, and optional report viewer as separate services
+1. **Desktop app** — one person on one computer. An installer for Windows and Linux; no Docker, Python or terminal.
+2. **Docker** — servers and teams. Either a **single container**, or **two to three containers** (backend, frontend and the optional report viewer).
 
-Pick the one that matches your situation. All three share the same data model, so you can move between them.
-
----
-
-## Before you start
-
-**Requirements**
-
-| Mode | Needs |
-|------|-------|
-| Local | Python 3.11+, Node.js 18+, (optional) conda/venv |
-| Docker (any) | Docker 24+ and Docker Compose v2 |
-
-**Generate a SECRET_KEY** (used to encrypt stored connection passwords and API keys). You'll need this for every mode:
-
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Copy the output — it's a ~44-character string ending in `=`. Keep it stable: if you change it later, previously saved connection passwords can no longer be decrypted.
+Both are built and tested for every release. They share the same project format, so you can move work between them with export and import.
 
 ---
 
-## Option 1 — Local (three terminals)
+## Desktop app
 
-This runs the backend, the frontend dev server, and (optionally) the report viewer as separate processes. It's the recommended setup while building flows because you get hot-reload on both frontend and backend.
+Download the installer from [sidewinderlabs.dev/download](https://sidewinderlabs.dev/download/) and run it. The app starts its own backend, keeps your data in your user folder, and updates itself.
 
-### 1. Backend (terminal 1)
+- **Data** lives in the OS app-data folder (Linux: `~/.local/share/dev.sidewinderlabs.flowstudio/`, Windows: `%APPDATA%\dev.sidewinderlabs.flowstudio\`). About (click the FS logo) → *Where is my data* opens it.
+- **Back up `secret.key`** in that folder: it encrypts your saved connection passwords.
+- **Drivers built in**: PostgreSQL, MySQL/MariaDB (and StarRocks, Doris), SQL Server, Oracle, ClickHouse, Trino and SQLite. Snowflake, BigQuery, Redshift, Databricks, Druid, Azure Data Lake, Delta and Iceberg need Docker.
+- **Plugins built in**: curve fitting.
+- **Settings** (the optional variables listed under [Settings](#settings)) go in a `.env` file in the data folder.
+- A database on your own computer is at `localhost`.
+
+Windows may show a SmartScreen warning while code signing is being set up: *More info → Run anyway*. See the [code signing policy](https://sidewinderlabs.dev/code-signing/). More detail: [desktop/README.md](../desktop/README.md).
+
+---
+
+## Docker
+
+**Needs:** Docker 24+ and Docker Compose v2.
+
+**Generate a SECRET_KEY** (it encrypts stored connection passwords and API keys):
 
 ```bash
-cd backend
-
-# Recommended: isolate dependencies in a conda env or venv
-conda create -n sfs python=3.12 -y && conda activate sfs
-#   ...or:  python -m venv .venv && source .venv/bin/activate
-
-# Install the core plus any optional connector/pushdown extras you need
-pip install -e .                         # core (pandas, polars, duckdb engines)
-pip install -e ".[pushdown]"             # + SQL pushdown & Ibis engines
-pip install -e ".[snowflake,bigquery]"   # + specific warehouse drivers (see table below)
+docker run --rm python:3.13-slim sh -c "pip -q install cryptography && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
 ```
 
-Create `backend/.env`:
+(`make gen-key` runs the same.) Copy the output, a ~44-character string ending in `=`. Keep it stable: if you change it later, previously saved connection passwords can no longer be decrypted.
+
+### Single container
+
+One image runs the backend and serves the built frontend from the same port. Good for a personal server or a quick trial. The report viewer is not included; use the multi-container setup if you need it.
+
+```bash
+git clone https://github.com/sidewinder-labs/sidewinder-flow-studio.git
+cd sidewinder-flow-studio
+cp .env.docker .env          # then set SECRET_KEY in .env
+docker compose -f docker-compose.single.yml up --build -d
+# → http://localhost:8000
+```
+
+Stop it with `docker compose -f docker-compose.single.yml down`.
+
+### Multi-container (2–3 containers)
+
+- **backend** — FastAPI and the engines (internal, not exposed directly)
+- **frontend** — nginx serving the UI and proxying `/api` and `/ws` to the backend (exposed on `:8080`)
+- **reports** — the Streamlit report viewer (optional; starts only with a profile flag)
+
+They share a Docker volume, so the reports container reads what the backend writes (read-only: the backend is the single writer).
+
+```bash
+cp .env.docker .env          # set SECRET_KEY; optionally FRONTEND_PORT (default 8080)
+docker compose up --build -d
+# → http://localhost:8080
+```
+
+To add the report viewer:
+
+```bash
+docker compose --profile reports up --build -d
+# → UI on http://localhost:8080, reports on http://localhost:8501
+```
+
+`make docker`, `make docker-down`, `make docker-logs` and `make docker-single` do the same.
+
+### Data
+
+- Everything persistent (projects, frame cache, metadata database, reports) lives in the `flow_data` named volume, so it survives restarts and rebuilds. To use a host directory instead, uncomment the `driver_opts` bind block at the bottom of `docker-compose.yml` and point `device:` at your path.
+- The metadata database is SQLite in the volume by default. For more than one user, set `METADATA_DB_URL` in `.env` to a PostgreSQL URL (see `.env.docker`).
+- **On Linux**, a database running on the host machine is at `host.docker.internal` (the compose files map it), not `localhost`.
+- Files you read in node code must be inside the container: mount a host folder (for example at `/data/imports`) in `docker-compose.yml`.
+
+### Choosing drivers
+
+The backend image installs the drivers named in the `SFS_EXTRAS` build setting. It defaults to `all-connectors,pushdown`: every warehouse driver plus the SQL and Ibis engines. For a smaller image, set it in `.env` and rebuild:
 
 ```ini
-SECRET_KEY=<paste the key you generated>
-DEBUG=true
+SFS_EXTRAS=trino,pushdown     # comma-separated, from the list below
+SFS_EXTRAS=                   # core engines only (pandas, polars, duckdb)
+```
 
-# Where SFS stores its data. IMPORTANT on Windows: keep these OUT of
-# OneDrive/Dropbox synced folders — sync locks corrupt the DuckDB files.
-PROJECTS_DIR=./projects
-FRAME_CACHE_DIR=./frame_cache
-REPORTS_DIR=./reports_data
-PERSIST_DB=./reports_data/persist.duckdb
-REPORTS_URL=http://localhost:8501
+| Extra | Adds |
+|---|---|
+| `snowflake` | Snowflake |
+| `bigquery` | BigQuery |
+| `clickhouse` | ClickHouse |
+| `redshift` | Redshift |
+| `mssql` | SQL Server (`pyodbc`; also needs the OS-level Microsoft ODBC Driver 18) |
+| `oracle` | Oracle (thin mode; no Oracle client needed) |
+| `mysql` | MySQL, StarRocks, Doris |
+| `druid` | Druid |
+| `trino` | Trino |
+| `databricks` | Databricks SQL |
+| `adls` | Azure Data Lake storage |
+| `deltalake`, `iceberg` | `read_delta()` / `read_iceberg()` in node code |
+| `fastread` | ConnectorX, the fastest path for `fast_read` and the Database read node |
+| `pushdown` | the SQL ⚡ and Ibis ⚡ engines |
+| `all-connectors` | every driver above |
 
-# Optional: Explore guardrails — max rows per chart query, query time limit
+PostgreSQL and SQLite work without an extra. The build log prints which drivers made it into the image:
+
+```
+SFS drivers: 14/15 ok: snowflake bigquery clickhouse ... ibis | missing: mssql
+```
+
+Then rebuild: `docker compose up --build -d` (or `docker compose -f docker-compose.single.yml up --build -d`).
+
+### Settings
+
+Optional settings are environment variables. In Docker, add them to the `backend` service's `environment:` block in `docker-compose.yml` (or to `docker-compose.single.yml`); in the desktop app, put them in the data folder's `.env`.
+
+```ini
+# Explore guardrails: max rows per chart query, query time limit
 EXPLORE_ROW_CAP=50000
 EXPLORE_TIMEOUT_S=30
 
-# Optional: AI agent (or configure providers in the UI instead)
+# AI agent (or configure providers in the UI: Meta → AI)
 ANTHROPIC_API_KEY=
 
-# Optional: where isolated plugin virtual environments live
-SFS_PLUGIN_VENVS_DIR=./plugin_venvs
-
-# Optional: run independent branches concurrently (off by default)
+# Run independent branches concurrently (off by default)
 SFS_PARALLEL_BRANCHES=0
 
-# Optional: DuckDB memory ceiling and spill location.
-# Below the limit DuckDB works in memory; above it, it spills instead of failing.
+# DuckDB memory ceiling and spill location. Below the limit DuckDB works in
+# memory; above it, it spills instead of failing.
 SFS_DUCKDB_MEMORY_LIMIT=
 SFS_DUCKDB_TEMP_DIR=
 
-# Optional: scheduler failure alerts
+# Where isolated plugin virtual environments live
+SFS_PLUGIN_VENVS_DIR=
+
+# Scheduler failure alerts
 SLACK_WEBHOOK_URL=
 SMTP_HOST=
 SMTP_PORT=587
@@ -89,211 +147,24 @@ SMTP_PASSWORD=
 SMTP_FROM=sfs@localhost
 ```
 
-Start it:
-
-```bash
-python main.py
-# → backend on http://localhost:8000  (API docs at /docs)
-```
-
-### 2. Frontend (terminal 2)
-
-```bash
-cd frontend
-npm install
-npm run dev
-# → UI on http://localhost:5173
-```
-
-The Vite dev server proxies `/api` and `/ws` to `localhost:8000` automatically, so just open **http://localhost:5173**.
-
-### 3. Report viewer (terminal 3, optional)
-
-Only needed if you use **Report** nodes. Best practice is a *separate* environment, because the viewer pins a specific Streamlit version that you don't want constraining your main env:
-
-```bash
-conda create -n sfs-reports python=3.12 -y && conda activate sfs-reports
-cd reports-app
-pip install -r requirements.txt          # pinned streamlit==1.41.1
-
-# Point it at the SAME reports DB the backend writes to:
-export REPORTS_DB=../backend/reports_data/reports.duckdb   # Windows: set REPORTS_DB=...
-streamlit run app.py
-# → viewer on http://localhost:8501
-```
-
-The viewer is fully optional and independent — start it whenever, or never. The only link between it and the backend is the shared `reports.duckdb` file.
-
-### Makefile shortcuts
-
-```bash
-make dev-backend     # terminal 1
-make dev-frontend    # terminal 2
-make gen-key         # print a fresh SECRET_KEY
-```
-
 ---
 
-## Option 2 — Single Docker container
+## Plugins
 
-One image runs the FastAPI backend and serves the pre-built frontend from the same port. Simplest possible deployment; good for a personal server or a quick trial. The report viewer is **not** included in single-container mode — use local or multi-container if you need it.
+Plugins add engines, chart templates and examples. **Curve fitting** is included in the desktop app and the Docker images.
 
-```bash
-# 1. Create .env
-cp .env.docker .env
-#    edit .env and set SECRET_KEY (use: make gen-key)
-
-# 2. Build and start
-docker compose -f docker-compose.single.yml up --build -d
-
-# → everything on http://localhost:8000
-```
-
-Data (projects, cache, metadata DB, reports) lives in a named Docker volume `flow_data`, so it survives restarts and rebuilds.
+**In Docker**, the image installs the plugins named in `SFS_PLUGINS`, by short name (`sfs-plugin-<name>`). Add one in `.env` and rebuild the backend:
 
 ```bash
-make docker-single          # same thing via Makefile
-make docker-single-down     # stop
+SFS_PLUGINS=curvefit,sklearn
+docker compose build --no-cache backend && docker compose up -d
 ```
 
-The image includes every warehouse driver and the pushdown engines by default. To change that, see [Choosing drivers for the Docker image](#choosing-drivers-for-the-docker-image).
-
----
-
-## Option 3 — Multi-container Docker (2–3 containers)
-
-Production-style. Separate containers:
-
-- **backend** — FastAPI + engines (internal, not exposed directly)
-- **frontend** — nginx serving the built UI, reverse-proxying `/api` and `/ws` to the backend (exposed on `:8080`)
-- **reports** — the Streamlit viewer (optional; only starts with a profile flag)
-
-They share a Docker volume so the reports container can read what the backend writes (read-only mount — the backend is the single writer).
-
-### Two containers (backend + frontend)
-
-```bash
-# 1. Create and edit .env
-cp .env.docker .env
-#    set SECRET_KEY; optionally FRONTEND_PORT (default 8080)
-
-# 2. Start
-docker compose up --build -d
-
-# → UI on http://localhost:8080
-```
-
-```bash
-make docker            # same via Makefile
-make docker-down       # stop
-make docker-logs       # tail logs
-```
-
-### Three containers (add the report viewer)
-
-The reports service is behind a Compose **profile**, so it only starts when you ask for it:
-
-```bash
-docker compose --profile reports up --build -d
-
-# → UI       on http://localhost:8080
-# → Reports  on http://localhost:8501
-```
-
-Relevant `.env` knobs:
-
-```ini
-SECRET_KEY=<required>
-FRONTEND_PORT=8080     # UI port
-REPORTS_PORT=8501      # report viewer port
-```
-
-### Environment / data notes
-
-- All persistent data lives in the `flow_data` named volume. To use a host directory instead, uncomment the `driver_opts` bind block at the bottom of `docker-compose.yml` and point `device:` at your path.
-- The backend container reads env vars directly from the compose file (`PROJECTS_DIR=/data/...`, etc.) — you don't need a separate `backend/.env` in Docker mode.
-- The backend image is built with `SFS_EXTRAS=all-connectors,pushdown` by default — see [Choosing drivers for the Docker image](#choosing-drivers-for-the-docker-image).
-- To add AI or alerting in Docker, add the vars (`ANTHROPIC_API_KEY`, `SLACK_WEBHOOK_URL`, `SMTP_*`) to the `backend` service's `environment:` block.
-
----
-
-## Warehouse driver extras
-
-Connectors are all free, but their Python drivers are optional installs so the base image stays lean. Install only what you use:
-
-```bash
-pip install -e ".[snowflake]"      # snowflake-sqlalchemy + connector
-pip install -e ".[bigquery]"       # sqlalchemy-bigquery + google-cloud-bigquery
-pip install -e ".[clickhouse]"     # clickhouse-sqlalchemy
-pip install -e ".[redshift]"       # sqlalchemy-redshift + psycopg2
-pip install -e ".[mssql]"          # pyodbc  (also needs the OS-level MS ODBC driver)
-pip install -e ".[oracle]"         # oracledb (thin mode; no Oracle client needed)
-pip install -e ".[mysql]"          # pymysql
-pip install -e ".[druid]"          # pydruid
-pip install -e ".[adls]"           # adlfs (Azure Data Lake storage)
-pip install -e ".[pushdown]"       # sqlglot + ibis-framework (SQL & Ibis engines)
-pip install -e ".[all-connectors]" # everything above
-```
-
-PostgreSQL, MySQL, SQLite, and Druid basics work out of the box.
-
-### Choosing drivers for the Docker image
-
-Both Docker setups install the backend with the pip extras named in the `SFS_EXTRAS` build argument. It defaults to `all-connectors,pushdown`, so every driver above and the SQL/Ibis engines are in the image. To build a smaller image, set it in `.env` before building:
-
-```ini
-SFS_EXTRAS=trino,pushdown     # any extras from the list above, comma-separated
-SFS_EXTRAS=                   # empty: core engines only (pandas, polars, duckdb)
-```
-
-Then rebuild: `docker compose up --build -d` (or `docker compose -f docker-compose.single.yml up --build -d`). Without Compose, pass it directly, from the repository root: `docker build -f backend/Dockerfile --build-arg SFS_EXTRAS=trino .`. Plugins from `plugins/` are chosen the same way with `SFS_PLUGINS` (default `curvefit`; empty for none).
-
-The build log prints which drivers made it into the image, e.g.:
-
-```
-SFS drivers: 14/15 ok: snowflake bigquery clickhouse ... ibis | missing: mssql
-```
-
-`mssql` shows as missing in the stock image because `pyodbc` needs the OS-level ODBC libraries (see the note below).
-
-> **SQL Server note:** `pyodbc` needs the Microsoft ODBC Driver 18 installed at the OS level — that part can't come from pip.
-
----
-
-## Plugins (optional)
-
-Engine plugins are ordinary Python packages installed alongside SFS. The bundled
-example adds a scikit-learn engine:
-
-```bash
-pip install -e plugins/sfs-plugin-sklearn
-```
-
-Restart SFS — the engine appears in the node picker. Check what's registered:
-
-```bash
-curl -s localhost:8000/api/capabilities | python -m json.tool
-```
+The engine appears in the node picker with a 🧩 badge.
 
 ### Isolated plugin environments
 
-A plugin can run in **its own virtual environment** so its dependencies never
-touch SFS's. Create one per plugin under a directory of your choosing and point
-SFS at it:
-
-```bash
-export SFS_PLUGIN_VENVS_DIR=./plugin_venvs      # or /opt/sfs-venvs in Docker
-
-python -m venv $SFS_PLUGIN_VENVS_DIR/sklearn
-$SFS_PLUGIN_VENVS_DIR/sklearn/bin/pip install pyarrow pandas scikit-learn
-```
-
-Then pick the **scikit-learn (isolated)** engine on a node; its "Plugin
-environment" field takes the folder name (`sklearn`) or an absolute path. SFS
-hands the frame over as an Arrow file and never imports the library itself.
-
-In Docker, build the venvs into the image (or mount them) and set the variable in
-`docker-compose.yml`:
+A plugin can run in **its own virtual environment**, so its dependencies never touch SFS's. SFS hands the frame over as an Arrow file and never imports the library itself. In Docker, build the environment into the image and point `SFS_PLUGIN_VENVS_DIR` at it:
 
 ```dockerfile
 RUN python -m venv /opt/sfs-venvs/sklearn \
@@ -301,16 +172,20 @@ RUN python -m venv /opt/sfs-venvs/sklearn \
 ENV SFS_PLUGIN_VENVS_DIR=/opt/sfs-venvs
 ```
 
+Then pick the **scikit-learn (isolated)** engine on a node; its "Plugin environment" field takes the folder name (`sklearn`) or an absolute path.
+
 See [PLUGINS.md](PLUGINS.md) to write your own.
+
+---
 
 ## Verifying the install
 
-1. Open the UI (`:5173` local, `:8080` multi-container, `:8000` single).
-2. Click the **FS** logo (top-left) → the About dialog shows the version.
-3. Create a project, drop a **Trigger** and a **Processor**, connect them, put `df = pd.DataFrame({'x':[1,2,3]})` in the processor, and hit **Run Flow**.
-4. The processor should show `3 rows`. If so, you're good.
+1. Open the UI (desktop: the app window; Docker: `:8080` multi-container, `:8000` single).
+2. Click the **FS** logo (top-left): the About dialog shows the version.
+3. Create a project, add a **Processor** after the trigger, put `df = pd.DataFrame({'x':[1,2,3]})` in it, and click **Run Flow**.
+4. The processor shows `3 rows`.
 
-For the reports viewer, add a **Report** node after a processor, run, then open the link on the node (or browse to `:8501`).
+For the report viewer (Docker with `--profile reports`), add a **Report** node after a processor, run, then open the link on the node (or browse to `:8501`).
 
 ---
 
@@ -318,9 +193,12 @@ For the reports viewer, add a **Report** node after a processor, run, then open 
 
 | Symptom | Fix |
 |---|---|
-| Saved connection passwords stop working / `InvalidToken` in the logs | `SECRET_KEY` changed since they were saved. Restore the original key in `.env`, or edit each connection and re-enter its password. Other connections and flows keep working; only nodes using the affected connection fail. |
-| Report viewer: "No module named streamlit" or a dashboard fails to render | Restart the **viewer** terminal (packages installed after start aren't seen); ensure `streamlit==1.41.1` from `reports-app/requirements.txt` |
-| `IO Error ... file is being used by another process` (Windows) | Move data dirs out of OneDrive/Dropbox; the viewer now uses short-lived connections but synced folders still interfere |
-| Engine errors "sqlglot/ibis not installed" | `pip install -e ".[pushdown]"` (the older name `enterprise` still works) |
-| Warehouse connection fails on Test | Check the driver extra is installed; for Snowflake verify the account-identifier format in the Host field |
-| Frontend can't reach backend (local) | Confirm backend is on :8000; the Vite proxy targets that port |
+| Saved connection passwords stop working / `InvalidToken` in the logs | `SECRET_KEY` changed since they were saved (desktop: `secret.key` was replaced). Restore the original key, or edit each connection and re-enter its password. Other connections and flows keep working; only nodes using the affected connection fail. |
+| A connection to a database on this computer fails in Docker | Use `host.docker.internal` as the host, not `localhost`. |
+| A file path works on your computer but not in a node (Docker) | The node runs in the container: mount the folder and use the container path. |
+| Engine errors "sqlglot/ibis not installed" | The image was built without `pushdown` in `SFS_EXTRAS`. Add it and rebuild. |
+| Warehouse connection fails on Test | Check its driver is in `SFS_EXTRAS` (the build log lists them); for Snowflake verify the account-identifier format in the Host field. |
+| A driver you need isn't in the desktop app | Use Docker, which includes every driver. |
+| `IO Error ... file is being used by another process` (Windows) | Keep the data folder out of OneDrive/Dropbox: sync locks corrupt DuckDB files. |
+
+Logs: Docker `docker compose logs backend --tail 100`; desktop About → *Where is my data* → logs.

@@ -11,12 +11,18 @@ package that registers one or more execution engines through the
 
 ## Installing
 
+The desktop app and the Docker images include **curvefit**. In Docker, the
+image installs the plugins listed in `SFS_PLUGINS` in `.env`; add one and
+rebuild the backend:
+
 ```bash
-pip install -e plugins/sfs-plugin-sklearn
+SFS_PLUGINS=curvefit,sklearn
+docker compose build --no-cache backend && docker compose up -d
 ```
 
-Restart SFS; the engine appears in the node picker with a 🧩 badge. The UI
-renders from `GET /api/capabilities`, so no frontend change is needed.
+The engine appears in the node picker with a 🧩 badge. The UI renders from
+`GET /api/capabilities`, so no frontend change is needed. To develop a plugin,
+see [docs/PLUGINS.md](../docs/PLUGINS.md).
 
 ## Writing your own
 
@@ -43,10 +49,11 @@ differs (it calls `api.run_isolated(...)`).
 | `sklearn` | in-process, shares SFS's environment |
 | `sklearn_isolated` | separate venv via `runner.py`, Arrow handoff |
 
-Set up an environment once:
+Build the environment into the Docker image once:
 
-```bash
-export SFS_PLUGIN_VENVS_DIR=./plugin_venvs
-python -m venv $SFS_PLUGIN_VENVS_DIR/sklearn
-$SFS_PLUGIN_VENVS_DIR/sklearn/bin/pip install pyarrow pandas scikit-learn
+```dockerfile
+# in backend/Dockerfile
+RUN python -m venv /opt/sfs-venvs/sklearn \
+ && /opt/sfs-venvs/sklearn/bin/pip install --no-cache-dir pyarrow pandas scikit-learn
+ENV SFS_PLUGIN_VENVS_DIR=/opt/sfs-venvs
 ```

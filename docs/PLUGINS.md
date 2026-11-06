@@ -38,9 +38,11 @@ implementation differs.
 package implementing everything below — a scikit-learn engine. Copy it as a
 starting point rather than writing a plugin from scratch.
 
-```bash
-pip install -e plugins/sfs-plugin-sklearn   # engine appears in the picker
-```
+To try it, add it to `SFS_PLUGINS` and rebuild the Docker image (see
+[INSTALLATION.md](INSTALLATION.md#plugins)). While developing a plugin, install
+it editable into a source checkout (`pip install -e plugins/<your-plugin>`, see
+[CONTRIBUTING.md](../CONTRIBUTING.md)); ship it to users through the Docker
+image's `SFS_PLUGINS`.
 
 ## Declaring a plugin
 

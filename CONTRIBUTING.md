@@ -9,14 +9,15 @@ job, so a little process keeps things sane for everyone.
   something that doesn't fit the direction, and me reviewing something I have to
   decline.
 - **Bug reports**: include SFS version (the About dialog / `pyproject.toml`), how
-  you're running it (local / Docker), the engine and connector involved, and the
+  you're running it (desktop / Docker), the engine and connector involved, and the
   full error text from `docker compose logs backend` or the node's error panel.
 - Response times will vary. This is a side project, not a company.
 
 ## Development setup
 
-See [docs/INSTALLATION.md](docs/INSTALLATION.md) for the local three-terminal
-setup. In short:
+Running from source is for developing SFS. It isn't a supported way to use it —
+use the desktop app or Docker ([docs/INSTALLATION.md](docs/INSTALLATION.md)),
+and reproduce bugs there before reporting them.
 
 ```bash
 cd backend && pip install -e ".[all-connectors,pushdown,dev]" && python main.py
