@@ -72,7 +72,7 @@ def _quiet_access_log(path: str) -> None:
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Sidewinder Flow Studio API",
-        version="1.36",
+        version="1.37",
         description="Visual Python notebook DAG with scheduling",
         lifespan=lifespan,
     )
