@@ -1,5 +1,5 @@
 import type { Project, Connection, Variable, AgentProvider, RunRow,
-  ExploreSource, ExploreFrame, ExplorePersisted, ExploreField, ExploreQueryResult, ExploreTable, ExploreDrillConfig } from '@/types'
+  ExploreSource, ExploreFrame, ExplorePersisted, ExploreField, ExploreQueryResult, ExploreTable, ExploreDrillConfig, BrowserSettings } from '@/types'
 
 const BASE = '/api'
 
@@ -86,6 +86,50 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   return res.json()
 }
 
+// ── Export / import ──────────────────────────────────────────────────────────
+
+export interface FlowBundle {
+  format: 'sfs-export'
+  format_version: number
+  sfs_version?: string
+  kind: 'flow' | 'project'
+  name: string
+  description?: string
+  flows: unknown[]
+  manifest: { connections: string[]; custom_processors: string[]; engines: { name: string; plugin: string | null; version: string | null }[] }
+  custom_processors?: { name: string; description?: string; engine?: string; code: string }[]
+}
+
+export interface ImportPreview {
+  kind: 'flow' | 'project'
+  name: string
+  sfs_version?: string
+  flows: string[]
+  connections: string[]
+  missing_connections: string[]
+  local_connections: string[]
+  missing_engines: { name: string; plugin: string | null; version: string | null }[]
+  custom_processors: { name: string; here: boolean }[]
+}
+
+export interface ConnectionBundle {
+  format: 'sfs-connections'
+  format_version: number
+  connections: { name: string; dialect: string; requires?: { password: boolean; extras: string[] } }[]
+  variables?: { scope: string; key: string; value: string | null; description: string | null }[]
+}
+
+export interface ConnectionImportPreview {
+  connections: { name: string; dialect: string; exists: boolean; requires: { password?: boolean; extras?: string[] } }[]
+  variables: number
+  variables_existing: string[]
+}
+
+export interface ConnectionImportResult {
+  created: string[]; overwritten: string[]; renamed: Record<string, string>; skipped: string[]
+  variables_added: number; variables_skipped: number
+}
+
 export const api = {
   projects: {
     list:   ()           => req<Project[]>('/projects/'),
@@ -103,6 +147,12 @@ export const api = {
     purge:   (id: string) => req<void>(`/projects/trash/${id}`, { method: 'DELETE' }),
     fromExample: (example: string, name?: string) =>
       req<Project>('/projects/from-example', { method: 'POST', body: JSON.stringify({ example, name }) }),
+    exportBundle: (id: string, flowId?: string) =>
+      req<FlowBundle>(`/projects/${id}/export${flowId ? `?flow_id=${encodeURIComponent(flowId)}` : ''}`),
+    importPreview: (bundle: FlowBundle) =>
+      req<ImportPreview>('/projects/import/preview', { method: 'POST', body: JSON.stringify({ bundle }) }),
+    importBundle: (bundle: FlowBundle, connection_map: Record<string, string | null>, project_id?: string) =>
+      req<Project>('/projects/import', { method: 'POST', body: JSON.stringify({ bundle, connection_map, project_id }) }),
   },
 
   library: {
@@ -140,6 +190,11 @@ export const api = {
     delete: (id: string) => req<void>(`/connections/${id}`, { method: 'DELETE' }),
     test:   (id: string) =>
       req<{ ok: boolean; error?: string }>(`/connections/${id}/test`, { method: 'POST' }),
+    exportAll: (variables = true) => req<ConnectionBundle>(`/connections/export?variables=${variables}`),
+    importPreview: (bundle: ConnectionBundle) =>
+      req<ConnectionImportPreview>('/connections/import/preview', { method: 'POST', body: JSON.stringify({ bundle }) }),
+    importAll: (bundle: ConnectionBundle, on_conflict: Record<string, string>, variables: boolean) =>
+      req<ConnectionImportResult>('/connections/import', { method: 'POST', body: JSON.stringify({ bundle, on_conflict, variables }) }),
   },
 
   metadata: {
@@ -207,10 +262,17 @@ export const api = {
 
   explore: {
     sources: () =>
-      req<{ frames: ExploreFrame[]; persisted: ExplorePersisted[]; connections: { name: string; dialect: string }[] }>(
+      req<{ frames: ExploreFrame[]; persisted: ExplorePersisted[]; connections: { name: string; dialect: string; browser?: BrowserSettings }[] }>(
         '/explore/sources'),
-    tables: (connection: string) =>
-      req<{ tables: ExploreTable[]; truncated: boolean }>(`/explore/tables?${new URLSearchParams({ connection })}`),
+    /** Every visible object, or one schema's, or a search across schemas (run in the database). */
+    tables: (connection: string, opts: { schema?: string; q?: string } = {}) =>
+      req<{ tables: ExploreTable[]; truncated: boolean }>(`/explore/tables?${new URLSearchParams(
+        { connection, ...(opts.schema != null ? { schema: opts.schema } : {}), ...(opts.q ? { q: opts.q } : {}) })}`),
+    schemas: (connection: string) =>
+      req<{ schemas: { schema: string; count: number | null }[]; settings: BrowserSettings }>(
+        `/explore/schemas?${new URLSearchParams({ connection })}`),
+    browserSettings: (connection: string, settings: Partial<BrowserSettings>) =>
+      req<{ settings: BrowserSettings }>('/explore/browser-settings', { method: 'PUT', body: JSON.stringify({ connection, settings }) }),
     schema: (source: ExploreSource) =>
       req<{ fields: ExploreField[]; rows?: number | null }>(
         `/explore/schema?${new URLSearchParams(source as Record<string, string>)}`),

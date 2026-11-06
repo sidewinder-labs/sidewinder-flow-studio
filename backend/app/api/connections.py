@@ -1,9 +1,8 @@
-import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.services import connection_service
+from app.services import connection_service, portability
 
 router = APIRouter()
 
@@ -17,14 +16,12 @@ class ConnectionIn(BaseModel):
     username: str | None = None
     password: str | None = None
     extra_params: dict | None = None
+    browser: dict | None = None
 
 
 def _out(c) -> dict:
-    return {
-        "id": c.id, "name": c.name, "dialect": c.dialect,
-        "host": c.host, "port": c.port, "database": c.database, "username": c.username,
-        "extra_params": json.loads(c.extra_params) if c.extra_params else None,
-    }
+    # Never a password or a secret option's value: names of secret options only.
+    return connection_service.public(c)
 
 
 @router.get("/")
@@ -37,6 +34,38 @@ async def create_connection(body: ConnectionIn, db: AsyncSession = Depends(get_d
     return _out(await connection_service.create_connection(db, body.model_dump()))
 
 
+# ── Export / import (before /{cid}) ──────────────────────────────────────────
+
+@router.get("/export")
+async def export_connections(variables: bool = True, db: AsyncSession = Depends(get_db)):
+    """Connection metadata (no password, no secret options) and, optionally,
+    the variables. Imported connections ask for their credentials."""
+    return await portability.export_connections(db, variables)
+
+
+class ConnImport(BaseModel):
+    bundle: dict
+    # name → "skip" | "overwrite" | "rename:<new name>"; collisions not listed are skipped
+    on_conflict: dict[str, str] = {}
+    variables: bool = True
+
+
+@router.post("/import/preview")
+async def preview_import(body: ConnImport, db: AsyncSession = Depends(get_db)):
+    try:
+        return await portability.preview_connections(db, body.bundle)
+    except portability.FormatError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/import")
+async def import_connections(body: ConnImport, db: AsyncSession = Depends(get_db)):
+    try:
+        return await portability.import_connections(db, body.bundle, body.on_conflict, body.variables)
+    except portability.FormatError as exc:
+        raise HTTPException(400, str(exc))
+
+
 class ConnectionUpdate(BaseModel):
     name: str | None = None
     dialect: str | None = None
@@ -45,7 +74,9 @@ class ConnectionUpdate(BaseModel):
     database: str | None = None
     username: str | None = None
     password: str | None = None       # blank/omitted keeps the existing password
-    extra_params: dict | None = None
+    extra_params: dict | None = None  # secret options not sent are kept
+    clear_secrets: list[str] | None = None
+    browser: dict | None = None
 
 
 @router.put("/{cid}")

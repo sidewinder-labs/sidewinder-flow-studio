@@ -1,9 +1,11 @@
 import { LibraryManager } from '@/components/library/LibraryManager'
 import { Modal } from '@/components/library/parts'
 import { useState } from 'react'
-import { Plus, Trash2, Check, X, TestTube2, Pencil } from 'lucide-react'
+import { Plus, Trash2, Check, X, TestTube2, Pencil, Download, Upload, KeyRound } from 'lucide-react'
 import { useStore } from '@/store'
-import { api } from '@/utils/api'
+import { api, type ConnectionBundle } from '@/utils/api'
+import { downloadJson, pickJson } from '@/utils/download'
+import { ConnectionImport } from './ConnectionImport'
 import { AgentProvidersPanel } from './AgentProvidersPanel'
 import { useEffect as _useEffect, useState as _useState } from 'react'
 import type { RunRow } from '@/types'
@@ -81,12 +83,31 @@ export function MetadataPanel() {
   const [varForm, setVarForm] = useState({ key:'', value:'', description:'' })
 
   const blankForm = { name:'', dialect:'postgresql', host:'', port:'', database:'', username:'', password:'', extra:'' }
+  // Secret options stay on the server; the form lists their names and can remove them
+  const [secrets, setSecrets] = useState<string[]>([])
+  const [clearSecrets, setClearSecrets] = useState<string[]>([])
+  const [connImport, setConnImport] = useState<ConnectionBundle | null>(null)
+  const [ioError, setIoError] = useState('')
+  const exportConns = async () => {
+    try { downloadJson('sfs-connections.json', await api.connections.exportAll(true)) }
+    catch (e) { setIoError(String((e as Error).message ?? e)) }
+  }
+  const importConns = async () => {
+    setIoError('')
+    try {
+      const b = await pickJson() as ConnectionBundle
+      if ((b as any)?.format !== 'sfs-connections') throw new Error("This isn't an SFS connections export.")
+      setConnImport(b)
+    } catch (e) { setIoError(String((e as Error).message ?? e)) }
+  }
 
   const startEdit = (c: any) => {
     // Serialize existing extra_params back into the k=v&k2=v2 string
     const extraStr = c.extra_params
       ? Object.entries(c.extra_params).map(([k, v]) => `${k}=${v}`).join('&')
       : ''
+    setSecrets(c.secret_extras ?? [])
+    setClearSecrets([])
     setForm({
       name: c.name ?? '', dialect: c.dialect ?? 'postgresql',
       host: c.host ?? '', port: c.port ? String(c.port) : '',
@@ -111,8 +132,13 @@ export function MetadataPanel() {
       port: form.port ? Number(form.port) : undefined,
       extra_params: Object.keys(extra_params).length ? extra_params : undefined,
     }
-    // On edit, don't send an empty password (keeps the stored one)
+    // On edit, don't send an empty password (keeps the stored one). Secret
+    // options not typed in are kept by the server; removed ones are listed.
     if (editingId && !form.password) delete payload.password
+    if (editingId) {
+      payload.extra_params = extra_params
+      if (clearSecrets.length) payload.clear_secrets = clearSecrets
+    }
 
     if (editingId) {
       await api.connections.update(editingId, payload)
@@ -122,6 +148,7 @@ export function MetadataPanel() {
     setShowAdd(false)
     setEditingId(null)
     setForm(blankForm)
+    setSecrets([]); setClearSecrets([])
     await loadConnections()
   }
 
@@ -154,7 +181,7 @@ export function MetadataPanel() {
           {connections.map((c) => (
             <div key={c.id} className="rounded-lg border border-canvas-border p-3 space-y-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-slate-200 flex-1">{c.name}</span>
+                <span className="text-sm font-medium text-slate-200 flex-1 truncate">{c.name}</span>
                 <span className="text-xs font-mono text-muted bg-surface-overlay rounded px-1.5 py-0.5">{c.dialect}</span>
                 <button onClick={() => testConn(c.id)} className="btn-ghost p-1" title="Test">
                   {testRes[c.id] === null ? <div className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" /> :
@@ -171,6 +198,13 @@ export function MetadataPanel() {
               <div className="text-xs text-muted font-mono">
                 {c.host}{c.port ? `:${c.port}` : ''}{c.database ? `/${c.database}` : ''}
               </div>
+              {c.needs_credentials && (
+                <button onClick={() => startEdit(c)}
+                  className="text-[11px] rounded px-1.5 py-0.5 bg-amber-500/15 text-amber-300 flex items-center gap-1"
+                  title="Imported without its credentials. Edit to enter them.">
+                  <KeyRound size={10} /> needs {[c.needs?.password ? 'password' : '', ...(c.needs?.extras ?? [])].filter(Boolean).join(', ')}
+                </button>
+              )}
             </div>
           ))}
 
@@ -196,17 +230,45 @@ export function MetadataPanel() {
                     placeholder={editingId ? 'leave blank to keep current' : (form.dialect === 'adls' ? 'account key' : '')} /></div>
                 <div className="col-span-2"><label className="label">Extra options (k=v&k2=v2)</label>
                   <input className="input font-mono text-xs" value={form.extra} onChange={(e) => setForm({...form,extra:e.target.value})}
-                    placeholder={DIALECT_HINTS[form.dialect]?.extra ?? ''} /></div>
+                    placeholder={DIALECT_HINTS[form.dialect]?.extra ?? ''} />
+                  <div className="text-[11px] text-subtle mt-1">Options named like a secret (token, secret, key, password, credentials…) are
+                    encrypted and never shown again.</div>
+                  {secrets.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5 items-center text-[11px]">
+                      <span className="text-muted">Stored secrets:</span>
+                      {secrets.map((k) => {
+                        const gone = clearSecrets.includes(k)
+                        return (
+                          <span key={k} className={`rounded px-1.5 py-0.5 font-mono flex items-center gap-1 ${gone ? 'bg-red-500/10 text-red-300 line-through' : 'bg-surface-overlay text-slate-300'}`}>
+                            {k}
+                            <button title={gone ? 'Keep it' : 'Remove it on save'} onClick={() =>
+                              setClearSecrets(gone ? clearSecrets.filter((x) => x !== k) : [...clearSecrets, k])}>×</button>
+                          </span>
+                        )
+                      })}
+                      <span className="text-subtle">kept unless you type {secrets.length === 1 ? 'it' : 'one'} above to replace</span>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex gap-2">
                 <button className="btn-pri flex-1" onClick={addConn}>{editingId ? 'Save changes' : 'Add'}</button>
-                <button className="btn-ghost" onClick={() => { setShowAdd(false); setEditingId(null); setForm(blankForm) }}>Cancel</button>
+                <button className="btn-ghost" onClick={() => { setShowAdd(false); setEditingId(null); setForm(blankForm); setSecrets([]); setClearSecrets([]) }}>Cancel</button>
               </div>
             </div>
           ) : (
             <button className="btn-ghost w-full justify-center border border-dashed border-canvas-border"
               onClick={() => setShowAdd(true)}><Plus size={12} /> Add Connection</button>
           )}
+          <div className="flex gap-2">
+            <button className="btn-ghost flex-1 justify-center text-xs gap-1" onClick={exportConns}
+              title="Names, hosts and options of every connection, plus variables. No passwords or secret options.">
+              <Download size={11} /> Export connections</button>
+            <button className="btn-ghost flex-1 justify-center text-xs gap-1" onClick={importConns}><Upload size={11} /> Import</button>
+          </div>
+          {ioError && <div className="text-xs text-red-300">{ioError}</div>}
+          {connImport && <ConnectionImport bundle={connImport} onClose={() => setConnImport(null)}
+                                           onDone={() => { loadConnections(); loadVariables() }} />}
         </>
       )}
 
@@ -224,6 +286,7 @@ export function MetadataPanel() {
             </div>
           ))}
 
+          <p className="text-[11px] text-subtle">Variables are plain text and export with connections: don't put secrets in them.</p>
           <div className="rounded-lg border border-canvas-border p-3 space-y-2">
             <div><label className="label">Key</label>
               <input className="input font-mono" value={varForm.key} onChange={(e) => setVarForm({...varForm,key:e.target.value})} placeholder="MY_VAR" /></div>

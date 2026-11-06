@@ -167,6 +167,14 @@ export interface ColumnSchema {
   dtype: string
 }
 
+export interface BrowserSettings {
+  show_partitions: boolean
+  show_views: boolean
+  show_system: boolean
+  include_schemas: string[]
+  exclude_schemas: string[]
+}
+
 export interface Connection {
   id: string
   name: string
@@ -175,6 +183,14 @@ export interface Connection {
   port?: number
   database?: string
   username?: string
+  extra_params?: Record<string, string> | null
+  /** Names of secret options that are set; their values never reach the browser. */
+  secret_extras?: string[]
+  has_password?: boolean
+  browser?: BrowserSettings
+  /** What an imported connection still lacks. */
+  needs?: { password: boolean; extras: string[] }
+  needs_credentials?: boolean
 }
 
 export interface Variable {
@@ -243,7 +259,9 @@ export type ExploreSource =
 export interface ExploreTable {
   schema: string
   name: string
-  kind: 'table' | 'view'
+  kind: 'table' | 'view' | 'materialized_view' | 'partition'
+  /** A PostgreSQL partitioned parent: the table people query. */
+  partitioned?: boolean
   rows: number | null
 }
 

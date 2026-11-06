@@ -313,7 +313,9 @@ def load_plugins() -> list[dict]:
         return _LOADED_PLUGINS
 
     for ep in eps:
-        info = {"name": ep.name, "value": ep.value, "loaded": False, "error": None}
+        dist = getattr(ep, "dist", None)
+        info = {"name": ep.name, "value": ep.value, "loaded": False, "error": None,
+                "version": getattr(dist, "version", None)}
         try:
             hook = ep.load()
             hook(RegistryAPI(source=f"plugin:{ep.name}"))

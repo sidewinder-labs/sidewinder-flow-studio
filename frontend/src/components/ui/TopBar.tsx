@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { Play, Save, Plus, FolderOpen, ChevronDown, Square, RefreshCw, Compass, BookOpen, Trash2, RotateCcw, ArrowLeft, HelpCircle } from 'lucide-react'
+import { Play, Save, Plus, FolderOpen, ChevronDown, Square, RefreshCw, Compass, BookOpen, Trash2, RotateCcw, ArrowLeft, HelpCircle, Download, Upload, Pencil } from 'lucide-react'
 import { useStore } from '@/store'
-import { api, type TrashedProject } from '@/utils/api'
+import { api, type FlowBundle, type TrashedProject } from '@/utils/api'
+import { bundleName, downloadJson, pickJson } from '@/utils/download'
 import { AboutDialog } from './AboutDialog'
 import { DeleteDialog } from './DeleteDialog'
+import { ImportDialog } from './ImportDialog'
 import { openHelp } from '@/components/help/HelpPanel'
 
 export function TopBar() {
@@ -43,6 +45,34 @@ export function TopBar() {
     await api.projects.purge(id)
     await openTrash()
   }
+
+  // Export / import (.sfs.json)
+  const [importing, setImporting] = useState<{ bundle: FlowBundle; into?: boolean } | null>(null)
+  const [flowMenu, setFlowMenu] = useState<{ flowId: string; x: number; y: number } | null>(null)
+  const [ioError, setIoError] = useState('')
+  const exportBundle = async (projectId: string, flowId?: string) => {
+    setIoError('')
+    try {
+      if (projectId === activeProject?.id) await saveProject()   // export what is on screen
+      const b = await api.projects.exportBundle(projectId, flowId)
+      downloadJson(bundleName(b.name), b)
+    } catch (e) { setIoError(String((e as Error).message ?? e)) }
+  }
+  const startImport = async (into: boolean) => {
+    setIoError('')
+    setShowProjects(false)
+    try {
+      const bundle = await pickJson() as FlowBundle
+      if (into) await saveProject()
+      setImporting({ bundle, into })
+    } catch (e) { setIoError(String((e as Error).message ?? e)) }
+  }
+  useEffect(() => {
+    if (!flowMenu) return
+    const close = () => setFlowMenu(null)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [flowMenu])
 
   const handleCreate = async () => {
     if (!newName.trim()) return
@@ -94,6 +124,45 @@ export function TopBar() {
 
   return (
     <>
+    {ioError && (
+      <div role="alert" className="flex items-start gap-3 px-4 py-2 bg-red-950/70 border-b border-red-500/40 text-red-200 text-xs z-30 shrink-0">
+        <span className="flex-1">{ioError}</span>
+        <button onClick={() => setIoError('')} className="shrink-0 text-red-300 hover:text-white" title="Dismiss">✕</button>
+      </div>
+    )}
+    {importing && (
+      <ImportDialog
+        bundle={importing.bundle}
+        projectId={importing.into ? activeProject?.id : undefined}
+        projectName={activeProject?.name}
+        onClose={() => setImporting(null)}
+        onDone={async (p) => {
+          const lastFlow = p.flows[p.flows.length - 1]?.id
+          setImporting(null)
+          await loadProjects()
+          await openProject(p.id)
+          if (importing.into && lastFlow) setActiveFlow(lastFlow)
+        }}
+      />
+    )}
+    {flowMenu && activeProject && (() => {
+      const f = activeProject.flows.find((x) => x.id === flowMenu.flowId)
+      if (!f) return null
+      const item = 'w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-300 hover:bg-surface-overlay'
+      return (
+        <div className="fixed z-[9000] w-44 bg-surface-raised border border-canvas-border rounded-lg shadow-node py-1"
+             style={{ left: flowMenu.x, top: flowMenu.y }} onMouseDown={(e) => e.stopPropagation()}>
+          <button className={item} onClick={(e) => { setFlowMenu(null); startRename(e, f.id, f.name) }}><Pencil size={11} /> Rename</button>
+          <button className={item} onClick={() => { setFlowMenu(null); exportBundle(activeProject.id, f.id) }}><Download size={11} /> Export flow</button>
+          {activeProject.flows.length > 1 && (
+            <button className={`${item} text-red-300`} onClick={() => {
+              setFlowMenu(null)
+              setDeleting({ kind: 'flow', projectId: activeProject.id, flowId: f.id, name: f.name })
+            }}><Trash2 size={11} /> Delete flow</button>
+          )}
+        </div>
+      )
+    })()}
     {runError && (
       <div role="alert"
         className="flex items-start gap-3 px-4 py-2 bg-red-950/70 border-b border-red-500/40 text-red-200 text-xs z-30 shrink-0">
@@ -208,6 +277,13 @@ export function TopBar() {
                     <span className="flex-1 truncate">{p.name}</span>
                     <span className="text-xs text-subtle group-hover:hidden">{p.updated_at?.slice(0, 10)}</span>
                     <button
+                      className="hidden group-hover:block text-subtle hover:text-accent"
+                      title="Export project (.sfs.json)"
+                      onClick={(e) => { e.stopPropagation(); setShowProjects(false); exportBundle(p.id) }}
+                    >
+                      <Download size={12} />
+                    </button>
+                    <button
                       className="hidden group-hover:block text-subtle hover:text-red-400"
                       title="Delete project"
                       onClick={(e) => {
@@ -240,7 +316,17 @@ export function TopBar() {
                 </div>
               </div>
             )}
-            <div className="border-t border-canvas-border p-2 flex gap-1">
+            <div className="border-t border-canvas-border p-2 flex gap-1 flex-wrap">
+              <button className="btn-ghost flex-1 text-xs text-muted justify-center gap-1.5" onClick={() => startImport(false)}
+                      title="Import a .sfs.json export as a new project">
+                <Upload size={11} /> Import
+              </button>
+              {activeProject && (
+                <button className="btn-ghost flex-1 text-xs text-muted justify-center gap-1.5" onClick={() => startImport(true)}
+                        title={`Import the flows of a .sfs.json export into ${activeProject.name}`}>
+                  <Upload size={11} /> Import flows
+                </button>
+              )}
               {activeProject && (
                 <button
                   className="btn-ghost flex-1 text-xs text-muted justify-center"
@@ -269,6 +355,8 @@ export function TopBar() {
                   ? 'border-accent/50 bg-accent/10 text-accent'
                   : 'border-canvas-border text-muted hover:text-slate-300'}`}
               onClick={() => { setActiveFlow(f.id); closeExplore() }}
+              onContextMenu={(e) => { e.preventDefault(); setFlowMenu({ flowId: f.id, x: e.clientX, y: e.clientY + 4 }) }}
+              title="Right-click: rename, export, delete"
             >
               {/* Active/inactive dot */}
               <div

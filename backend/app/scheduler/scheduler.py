@@ -201,6 +201,7 @@ def scheduled_flow_ids() -> set[str]:
 
 def get_next_run(flow_id: str) -> str | None:
     job = _scheduler.get_job(f"flow:{flow_id}")
-    if job and job.next_run_time:
-        return job.next_run_time.isoformat()
+    nxt = getattr(job, "next_run_time", None)      # a job pending a scheduler start has none yet
+    if nxt:
+        return nxt.isoformat()
     return None

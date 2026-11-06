@@ -1,7 +1,9 @@
 """Projects API."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from app.services import deletion, project_service
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import get_db
+from app.services import deletion, portability, project_service
 from app.scheduler.scheduler import get_next_run, sync_schedules
 
 router = APIRouter()
@@ -46,6 +48,40 @@ def create_from_example(body: FromExample):
         body.name or ex["name"], ex["description"], ex["flow"])
 
 
+# ── Import (before /{pid}) ───────────────────────────────────────────────────
+
+class ImportIn(BaseModel):
+    bundle: dict
+    # exported connection name → local connection name; missing or empty: unresolved
+    connection_map: dict[str, str | None] = {}
+    project_id: str | None = None             # import as flows of this project; else a new project
+
+
+async def _connection_names(db: AsyncSession) -> list[str]:
+    from app.services.connection_service import list_connections
+    return [c.name for c in await list_connections(db)]
+
+
+@router.post("/import/preview")
+async def import_preview(body: ImportIn, db: AsyncSession = Depends(get_db)):
+    try:
+        return portability.preview_flows(body.bundle, await _connection_names(db))
+    except portability.FormatError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/import", status_code=201)
+async def import_bundle(body: ImportIn):
+    try:
+        project = portability.import_flows(body.bundle, body.connection_map, body.project_id)
+    except portability.FormatError as exc:
+        raise HTTPException(400, str(exc))
+    except KeyError:
+        raise HTTPException(404, "Project not found")
+    sync_schedules(project["id"], project.get("flows", []))     # imported inactive: unschedules nothing new
+    return project
+
+
 # ── Trash (before /{pid}, which would match "trash") ────────────────────────
 
 @router.get("/trash/")
@@ -77,6 +113,19 @@ def delete_preview(pid: str, flow_id: str | None = None):
     if info is None:
         raise HTTPException(404, "Project not found")
     return info
+
+
+@router.get("/{pid}/export")
+def export_project(pid: str, request: Request, flow_id: str | None = None, custom_processors: bool = True):
+    """The project, or one flow of it, as a portable .sfs.json bundle."""
+    p = project_service.get_project(pid)
+    if not p:
+        raise HTTPException(404, "Project not found")
+    try:
+        return portability.export_flows(p, flow_id, include_custom=custom_processors,
+                                        sfs_version=request.app.version)
+    except KeyError:
+        raise HTTPException(404, "Flow not found")
 
 
 @router.get("/{pid}")
