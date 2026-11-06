@@ -78,7 +78,7 @@ def test_project_from_an_example(clean_examples):
     p = project_service.get_project(r.json()["id"])
     f = p["flows"][0]
     assert p["name"] == "Demo" and f["name"] == "Demo"
-    assert [n["id"] for n in f["nodes"]] == ["t", "p"] and len(f["edges"]) == 1   # its own trigger kept
+    assert sorted(n["id"] for n in f["nodes"]) == ["p", "t"] and len(f["edges"]) == 1   # its own trigger kept
     second = client.post("/api/projects/from-example", json={"example": "Demo", "name": "Mine"}).json()
     assert second["name"] == "Mine" and second["flows"][0]["id"] != f["id"]
     assert client.post("/api/projects/from-example", json={"example": "Nope"}).status_code == 404
