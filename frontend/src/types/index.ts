@@ -201,6 +201,8 @@ export interface FlowMeta {
   active: boolean
   imports: string
   shared_functions?: string
+  // Library functions copied into this flow: name → where the copy came from
+  function_provenance?: Record<string, { library_id: string; version: number; hash: string; inserted_at?: string }>
   nodes: unknown[]
   edges: unknown[]
   next_run?: string

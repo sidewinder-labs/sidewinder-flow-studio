@@ -96,6 +96,9 @@ interface AppState {
   updateFlowCanvas: (flowId: string, nodes: unknown[], edges: unknown[]) => void
   updateFlowImports: (flowId: string, imports: string) => void
   updateFlowShared: (flowId: string, shared_functions: string) => void
+  /** Functions, Imports and library provenance together (insert/update from the library); saves. */
+  updateFlowLibrary: (flowId: string, v: { shared_functions: string; imports: string;
+    function_provenance: Record<string, any> }) => Promise<void>
   applyBuiltFlow: (flowId: string, built: { node_id: string; label: string; code: string }[]) => void
   updateNodeData: (flowId: string, nodeId: string, data: object) => void
   addNodeToCanvas: (flowId: string, node: object) => void
@@ -276,6 +279,15 @@ export const useStore = create<AppState>((set, get) => ({
       const flows = s.activeProject.flows.map((f) => f.id === flowId ? { ...f, shared_functions } : f)
       return { activeProject: { ...s.activeProject, flows } }
     })
+  },
+
+  updateFlowLibrary: async (flowId, v) => {
+    set((s) => {
+      if (!s.activeProject) return {}
+      const flows = s.activeProject.flows.map((f) => f.id === flowId ? { ...f, ...v } : f)
+      return { activeProject: { ...s.activeProject, flows } }
+    })
+    await get().saveProject()
   },
 
   applyBuiltFlow: (flowId, built) => {

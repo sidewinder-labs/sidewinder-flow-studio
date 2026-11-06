@@ -325,6 +325,21 @@ df.to_parquet("abfs://container/out/result.parquet", storage_options=opts)
 
 ---
 
+## Function library
+
+Functions written in a flow's **Imports → Functions** tab are available in every node of that flow. To reuse one in other flows, save it to the **function library**.
+
+- **Save to library**: under the Functions editor, each function has *Save to library*. SFS proposes the imports it needs from the flow's Imports tab (only what the function uses), and you can add a description and tags.
+- **Insert**: *From library* lists the library with search and tags. Inserting **copies** the function into the flow's Functions and adds any of its imports the flow doesn't have yet. If the flow already has a function of that name, choose to replace it or insert under another name.
+- **A flow never depends on the library.** Its copy is its own and can be edited freely; library changes can't break a scheduled run; a project runs on another machine without the library.
+- **Updates are deliberate.** Each copy remembers where it came from and shows its state: *up to date*, *update available* (the library has a newer version: **Update** shows the difference first), *modified here* (changed in the flow; **Compare** shows the difference, and updating would overwrite it), *deprecated in library*, or *library entry deleted* (the copy keeps working). Renaming a copy makes it the flow's own.
+- **Managing the library** (Meta → Library, or the settings icon beside *From library*): every entry with its version, tags and **where it is used**: which flows hold a copy, and in what state. Filter *Unused* to find entries no flow holds. Edit (each edit is a new version), **Deprecate** with a note (hidden from Insert, flagged in flows that hold a copy), or **Delete** (shows where it is used first, and suggests Deprecate if any flow holds a copy).
+- **Export library / Import** saves the library and your custom processors as one file, to share or move to another machine.
+
+The library lives in the app's data folder (desktop) or the data volume (Docker), next to custom processors. Library functions are listed in the help panel under **Your library**.
+
+---
+
 ## Variables
 
 **Meta → Variables** holds reusable config values, available in any processor as `vars`:

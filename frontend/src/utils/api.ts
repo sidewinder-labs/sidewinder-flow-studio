@@ -19,6 +19,8 @@ export interface HelperDoc {
   sfs_specific: boolean
   source: string            // builtin | plugin:<dist> | the library (pandas, Polars, DuckDB)
   link: string | null
+  library?: boolean         // from the user's function library (copied into flows on insert)
+  deprecated?: boolean
   summary: string
   description: string
   args: { name: string; doc: string }[]
@@ -36,6 +38,37 @@ export interface Snippet {
   note?: string
   code: string
   needs: string[]
+}
+
+/** A function in the user's library (copied into flows on insert). */
+export interface LibraryEntry {
+  id: string
+  name: string
+  description: string
+  code: string
+  imports: string
+  tags: string[]
+  version: number
+  content_hash: string
+  deprecated: boolean
+  deprecation_note: string
+  updated_at: string
+  usage?: { count: number; last_inserted: string | null;
+            copies: { project_id: string; project: string; flow_id: string; flow: string; function: string; state: string }[] }
+}
+
+export type CopyState = 'current' | 'update' | 'modified' | 'deleted'
+
+export interface FlowFunction {
+  name: string
+  kind: 'function' | 'class'
+  source: string
+  library?: { state: CopyState; library_id?: string; version?: number; latest_version?: number;
+              deprecated?: boolean; deprecation_note?: string; library_code?: string; library_imports?: string }
+}
+
+export interface LibraryResult {
+  functions: string; imports: string; provenance: Record<string, any>; added_imports: string[]; name: string
 }
 
 export interface TrashedProject { id: string; name: string; deleted_at: string | null; flows: number }
@@ -70,6 +103,32 @@ export const api = {
     purge:   (id: string) => req<void>(`/projects/trash/${id}`, { method: 'DELETE' }),
     fromExample: (example: string, name?: string) =>
       req<Project>('/projects/from-example', { method: 'POST', body: JSON.stringify({ example, name }) }),
+  },
+
+  library: {
+    list: (includeDeprecated = true) =>
+      req<LibraryEntry[]>(`/function-library/?include_deprecated=${includeDeprecated}`),
+    create: (e: { name: string; code: string; description?: string; imports?: string; tags?: string[] }) =>
+      req<LibraryEntry>('/function-library/', { method: 'POST', body: JSON.stringify(e) }),
+    edit: (id: string, e: Partial<Pick<LibraryEntry, 'name' | 'code' | 'description' | 'imports' | 'tags'>>) =>
+      req<LibraryEntry>(`/function-library/${id}`, { method: 'PUT', body: JSON.stringify(e) }),
+    deprecate: (id: string, note: string, deprecated = true) =>
+      req<LibraryEntry>(`/function-library/${id}/deprecate`, { method: 'POST', body: JSON.stringify({ note, deprecated }) }),
+    remove: (id: string) => req<void>(`/function-library/${id}`, { method: 'DELETE' }),
+    functionsIn: (functions: string, provenance: Record<string, any> = {}) =>
+      req<{ functions: FlowFunction[]; error?: string }>('/function-library/functions',
+        { method: 'POST', body: JSON.stringify({ functions, provenance }) }),
+    proposeImports: (code: string, flow_imports: string) =>
+      req<{ imports: string }>('/function-library/propose-imports', { method: 'POST', body: JSON.stringify({ code, flow_imports }) }),
+    insert: (b: { functions: string; imports: string; provenance: Record<string, any>; entry_id: string;
+                  on_conflict?: 'ask' | 'replace' | 'rename'; new_name?: string }) =>
+      req<LibraryResult>('/function-library/insert', { method: 'POST', body: JSON.stringify(b) }),
+    updateCopy: (b: { functions: string; imports: string; provenance: Record<string, any>; name: string }) =>
+      req<LibraryResult>('/function-library/update-copy', { method: 'POST', body: JSON.stringify(b) }),
+    exportAll: () => req<object>('/function-library/export'),
+    importAll: (data: object) =>
+      req<{ functions_added: number; functions_skipped: number; custom_processors_added: number }>(
+        '/function-library/import', { method: 'POST', body: JSON.stringify(data) }),
   },
 
   connections: {

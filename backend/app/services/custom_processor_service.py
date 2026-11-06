@@ -54,3 +54,12 @@ def delete_custom(cid: str) -> bool:
         return False
     _save(remaining)
     return True
+
+
+def import_many(items: list[dict]) -> int:
+    """Add exported custom processors whose id isn't here yet; returns how many."""
+    current = _load()
+    have = {i["id"] for i in current}
+    new = [i for i in items if i.get("id") and i["id"] not in have and i.get("name")]
+    _save(current + new)
+    return len(new)

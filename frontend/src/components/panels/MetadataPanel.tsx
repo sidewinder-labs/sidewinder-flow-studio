@@ -1,3 +1,5 @@
+import { LibraryManager } from '@/components/library/LibraryManager'
+import { Modal } from '@/components/library/parts'
 import { useState } from 'react'
 import { Plus, Trash2, Check, X, TestTube2, Pencil } from 'lucide-react'
 import { useStore } from '@/store'
@@ -70,7 +72,8 @@ const DIALECT_HINTS: Record<string, { host: string; port: string; database: stri
 
 export function MetadataPanel() {
   const { connections, variables, loadConnections, loadVariables } = useStore()
-  const [tab, setTab] = useState<'conn' | 'vars' | 'ai' | 'runs'>('conn')
+  const [tab, setTab] = useState<'conn' | 'vars' | 'ai' | 'runs' | 'lib'>('conn')
+  const [libOpen, setLibOpen] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [testRes, setTestRes] = useState<Record<string,boolean|null>>({})
@@ -137,7 +140,7 @@ export function MetadataPanel() {
   return (
     <div className="p-4 space-y-3">
       <div className="flex gap-1 bg-canvas-bg rounded-lg p-1">
-        {([['conn','Connections'],['vars','Variables'],['ai','AI'],['runs','Runs']] as const).map(([t,l]) => (
+        {([['conn','Connections'],['vars','Variables'],['ai','AI'],['runs','Runs'],['lib','Library']] as const).map(([t,l]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`flex-1 py-1.5 rounded text-xs font-medium transition-colors
               ${tab === t ? 'bg-surface-raised text-accent' : 'text-muted hover:text-slate-300'}`}>
@@ -232,6 +235,13 @@ export function MetadataPanel() {
       )}
       {tab === 'ai' && <AgentProvidersPanel />}
       {tab === 'runs' && <RunsPanel />}
+      {tab === 'lib' && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted">Reusable functions. Inserting one copies it into a flow, so flows never depend on the library.</p>
+          <button className="btn-ghost border border-canvas-border w-full text-xs" onClick={() => setLibOpen(true)}>Open the function library</button>
+          {libOpen && <Modal title="Function library" wide onClose={() => setLibOpen(false)}><LibraryManager /></Modal>}
+        </div>
+      )}
     </div>
   )
 }

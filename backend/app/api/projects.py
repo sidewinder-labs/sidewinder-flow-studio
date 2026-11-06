@@ -100,6 +100,11 @@ def save_project(pid: str, body: ProjectSave):
         raise HTTPException(409, str(exc))
     tables = deletion.tables_to_drop(pid, going, staying) if going and body.drop_persisted else []
 
+    # A function renamed or removed in the flow drops its library provenance
+    from app.services.function_library import prune
+    for flow in body.flows:
+        if flow.get("function_provenance"):
+            flow["function_provenance"] = prune(flow.get("shared_functions", ""), flow["function_provenance"])
     result = project_service.save_project(pid, body.model_dump(exclude_none=True, exclude={"drop_persisted"}))
     if not result:
         raise HTTPException(404, "Project not found")

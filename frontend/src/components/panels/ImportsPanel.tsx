@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react'
 import { useStore } from '@/store'
 import { useHelpData } from '@/utils/engines'
 import { openHelp } from '@/components/help/HelpPanel'
+import { FunctionsLibrary } from '@/components/library/FunctionsLibrary'
 
 const DEFAULT_IMPORTS = 'import pandas as pd\nimport sqlalchemy as sa\n'
 const FUNCTIONS_HINT = `# Define reusable functions here — they're available in EVERY node of this flow.
@@ -23,7 +24,7 @@ const FUNCTIONS_HINT = `# Define reusable functions here — they're available i
 `
 
 export function ImportsPanel() {
-  const { activeProject, activeFlowId, updateFlowImports, updateFlowShared } = useStore()
+  const { activeProject, activeFlowId, updateFlowImports, updateFlowShared, updateFlowLibrary } = useStore()
   const { helpers } = useHelpData()
   const flow = activeProject?.flows.find((f) => f.id === activeFlowId)
   const [tab, setTab] = useState<'imports' | 'functions'>('imports')
@@ -80,6 +81,19 @@ export function ImportsPanel() {
           theme="vs-dark"
         />
       </div>
+
+      {tab === 'functions' && activeFlowId && (
+        <FunctionsLibrary
+          functions={funcs}
+          imports={imports}
+          provenance={flow?.function_provenance ?? {}}
+          onApply={(r) => {
+            setFuncs(r.functions)
+            setImports(r.imports)
+            updateFlowLibrary(activeFlowId, { shared_functions: r.functions, imports: r.imports, function_provenance: r.provenance })
+          }}
+        />
+      )}
 
       <button className="btn-pri w-full shrink-0" onClick={save}>Save Preamble</button>
 

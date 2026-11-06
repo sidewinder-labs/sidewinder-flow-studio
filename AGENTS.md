@@ -81,7 +81,11 @@ processors by "Build with AI"; skipped at run time until built).
 
 ## Flow JSON shape (projects/*.json)
 
-Flow = { id, name, active, imports, shared_functions, nodes[], edges[] }.
+Flow = { id, name, active, imports, shared_functions, function_provenance?, nodes[], edges[] }.
+`shared_functions` is the flow's Functions tab (one code block). Functions
+inserted from the function library are COPIES in it; `function_provenance`
+maps each such function name to {library_id, version, hash, inserted_at} so
+updates can be pulled deliberately. A flow never depends on the library.
 Node = { id, type, position, data{ label, code, engine, … } }.
 Edge = { id, source, target }. Only `df` crosses edges (see contract).
 

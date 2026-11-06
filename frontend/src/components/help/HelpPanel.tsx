@@ -76,7 +76,7 @@ export function HelpPanel() {
 
   const index: Item[] = useMemo(() => [
     ...ALL_PAGES.map((p) => ({ id: p.id, kind: 'Guide', title: p.title, subtitle: p.docTitle, text: p.markdown })),
-    ...helpers.map((h) => ({ id: `helper:${h.name}`, kind: h.sfs_specific ? 'SFS helper' : 'Library function',
+    ...helpers.map((h) => ({ id: `helper:${h.name}`, kind: h.library ? 'Your library' : h.sfs_specific ? 'SFS helper' : 'Library function',
       title: h.name, subtitle: h.summary, text: `${h.signature} ${h.description} ${h.args.map((a) => a.doc).join(' ')}` })),
     ...engines.map((e) => ({ id: `engine:${e.name}`, kind: 'Engine', title: e.label, subtitle: e.description,
       text: `${e.hint ?? ''} ${e.name}` })),
@@ -160,7 +160,8 @@ function Nav({ view, go, helpers, engines, topics }: { view: string; go: (id: st
   const others = GUIDES.filter((g) => g.doc !== 'GETTING_STARTED')
   const [openDoc, setOpenDoc] = useState<string | null>(null)
   const sfs = helpers.filter((h) => h.sfs_specific)
-  const lib = helpers.filter((h) => !h.sfs_specific)
+  const lib = helpers.filter((h) => !h.sfs_specific && !h.library)
+  const yours = helpers.filter((h) => h.library)
   return (
     <nav className="w-60 shrink-0 overflow-y-auto border-r border-canvas-border px-2 pb-6">
       <Heading icon={<Rocket size={11} />}>Getting started</Heading>
@@ -170,6 +171,11 @@ function Nav({ view, go, helpers, engines, topics }: { view: string; go: (id: st
       {sfs.map((h) => <NavItem key={h.name} id={`helper:${h.name}`} view={view} go={go}><code>{h.name}</code></NavItem>)}
       <Heading icon={<Code2 size={11} />}>Library functions</Heading>
       {lib.map((h) => <NavItem key={h.name} id={`helper:${h.name}`} view={view} go={go}><code>{h.name}</code></NavItem>)}
+
+      {yours.length > 0 && <>
+        <Heading icon={<Code2 size={11} />}>Your library</Heading>
+        {yours.map((h) => <NavItem key={h.name} id={`helper:${h.name}`} view={view} go={go}><code>{h.name}</code></NavItem>)}
+      </>}
 
       <Heading icon={<Cpu size={11} />}>Engines</Heading>
       {engines.map((e) => <NavItem key={e.name} id={`engine:${e.name}`} view={view} go={go}>{e.label}</NavItem>)}
@@ -249,7 +255,9 @@ function HelperPage({ h, go, snippets }: { h: HelperDoc; go: (id: string) => voi
     <article className="max-w-3xl space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-semibold text-slate-100 font-mono">{h.name}</h1>
-        {h.sfs_specific
+        {h.library
+          ? <Badge tone="amber">Your library · insert it into a flow's Functions to use it{h.deprecated ? ' · deprecated' : ''}</Badge>
+          : h.sfs_specific
           ? <Badge tone="accent">SFS helper · only inside SFS{h.source.startsWith('plugin:') ? ` · ${h.source}` : ''}</Badge>
           : <Badge tone="violet">{h.source} · works anywhere Python runs</Badge>}
         <Badge>{h.category}</Badge>
