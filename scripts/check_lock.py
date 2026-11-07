@@ -17,6 +17,10 @@ OWN = {"flow-studio-backend"}
 OWN_PREFIX = "sfs-plugin-"
 TOOLING = {"pip", "setuptools", "wheel", "uv"}
 
+# Windows consoles default to cp1252, which has no ✓/✗
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 
 def norm(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
