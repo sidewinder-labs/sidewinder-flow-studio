@@ -122,6 +122,7 @@ def create_app() -> FastAPI:
             # Client-side routes get the app; unknown API paths stay 404s
             if full_path.startswith(("api/", "ws/")):
                 raise HTTPException(404, "Not found")
-            return FileResponse(str(static_dir / "index.html"))
+            # Revalidated on every load, so an update is never hidden behind a cached page
+            return FileResponse(str(static_dir / "index.html"), headers={"Cache-Control": "no-cache"})
 
     return app
