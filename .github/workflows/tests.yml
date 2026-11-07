@@ -29,12 +29,22 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: |
-            backend/pyproject.toml
-            plugins/sfs-plugin-curvefit/pyproject.toml
+          cache-dependency-path: locks/requirements.lock
 
+      # The versions the Docker images and the desktop app ship (locks/requirements.lock)
       - name: Install the backend and the curve-fitting plugin
-        run: python -m pip install "./backend[dev,pushdown,fastread]" ./plugins/sfs-plugin-curvefit
+        run: python -m pip install -c locks/requirements.lock "./backend[dev,pushdown,fastread]" ./plugins/sfs-plugin-curvefit
+
+      - name: Installed packages match the lock
+        run: python scripts/check_lock.py
+
+      # A dependency added to a pyproject.toml without re-locking fails here
+      - name: The locks are up to date
+        run: |
+          pip install uv==0.13.7
+          scripts/lock.sh
+          git diff --exit-code locks/requirements.lock reports-app/requirements.lock ||
+            { echo "Run scripts/lock.sh and commit the locks"; exit 1; }
 
       - name: Backend tests
         working-directory: backend

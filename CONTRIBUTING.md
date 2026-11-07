@@ -8,9 +8,10 @@ job, so a little process keeps things sane for everyone.
 - **Open an issue first** for anything beyond a small fix. It saves you building
   something that doesn't fit the direction, and me reviewing something I have to
   decline.
-- **Bug reports**: include SFS version (the About dialog / `pyproject.toml`), how
-  you're running it (desktop / Docker), the engine and connector involved, and the
-  full error text from `docker compose logs backend` or the node's error panel.
+- **Bug reports**: use the bug report form. It asks how SFS is installed and for
+  the diagnostics from About → **Copy diagnostics**. Reports from source builds
+  are labelled `unsupported-install` until they're reproduced on the desktop app
+  or Docker.
 - Response times will vary. This is a side project, not a company.
 
 ## Development setup
@@ -20,9 +21,28 @@ use the desktop app or Docker ([docs/INSTALLATION.md](docs/INSTALLATION.md)),
 and reproduce bugs there before reporting them.
 
 ```bash
-cd backend && pip install -e ".[all-connectors,pushdown,dev]" && python main.py
+pip install -c locks/requirements.lock -e "backend[all-connectors,pushdown,dev]" -e plugins/sfs-plugin-curvefit
+cd backend && python main.py
 cd frontend && npm install && npm run dev
 ```
+
+## Dependencies
+
+`pyproject.toml` states version **ranges**: what SFS works with.
+`locks/requirements.lock` (and `reports-app/requirements.lock` for the viewer)
+pins **every** package at the version that ships; the Docker images, the
+desktop build and CI install with it as a pip constraints file
+(`pip install -c locks/requirements.lock …`) and fail if anything differs
+(`scripts/check_lock.py`).
+
+- After changing a `pyproject.toml` or `reports-app/requirements.txt`, run
+  `scripts/lock.sh` (needs `pip install uv`) and commit the lock. CI fails if the
+  lock is out of date.
+- Upgrades come from the weekly *Update Python locks* workflow as a pull request
+  (tests and a Docker build already run on it), or by hand with
+  `scripts/lock.sh --upgrade`.
+- Develop against the lock too:
+  `pip install -c locks/requirements.lock -e "backend[all-connectors,pushdown,dev]"`.
 
 ## Project conventions
 

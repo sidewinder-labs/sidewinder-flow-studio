@@ -6,8 +6,8 @@
 # Stage 1: build frontend
 FROM node:22-alpine AS frontend-builder
 WORKDIR /frontend
-COPY frontend/package.json ./
-RUN npm install
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
 COPY frontend/ .
 # The help panel bundles docs/, which must sit next to the frontend, as in the repo
 COPY docs/ /docs/
@@ -29,17 +29,24 @@ WORKDIR /app
 # editable installs are for local dev and behave inconsistently in containers.
 # Connector drivers and the pushdown engines are optional extras in pyproject.toml.
 # Override with --build-arg SFS_EXTRAS=trino,pushdown (or SFS_EXTRAS= for core only).
+# Versions come from locks/requirements.lock (a pip constraints file), so the
+# same commit builds the same image on any day; pyproject.toml only states ranges.
 ARG SFS_EXTRAS=all-connectors,pushdown
+COPY locks/requirements.lock /opt/sfs-lock/requirements.lock
+COPY scripts/check_lock.py /opt/sfs-lock/check_lock.py
 COPY backend/ .
-RUN pip install --no-cache-dir ".${SFS_EXTRAS:+[$SFS_EXTRAS]}" aiofiles
+RUN pip install --no-cache-dir -c /opt/sfs-lock/requirements.lock ".${SFS_EXTRAS:+[$SFS_EXTRAS]}"
 
 # Plugins from plugins/, by short name (sfs-plugin-<name>), comma-separated.
 # Override with --build-arg SFS_PLUGINS=curvefit,sklearn (or SFS_PLUGINS= for none).
 ARG SFS_PLUGINS=curvefit
 COPY plugins/ /opt/sfs-plugins/
 RUN for p in $(echo "$SFS_PLUGINS" | tr ',' ' '); do \
-      pip install --no-cache-dir "/opt/sfs-plugins/sfs-plugin-$p" || exit 1; \
+      pip install --no-cache-dir -c /opt/sfs-lock/requirements.lock "/opt/sfs-plugins/sfs-plugin-$p" || exit 1; \
     done
+
+# Fail the build if anything installed differs from the lock.
+RUN python /opt/sfs-lock/check_lock.py /opt/sfs-lock/requirements.lock
 
 # One-line summary of installed connector drivers / pushdown engines.
 RUN python scripts/driver_summary.py
@@ -57,6 +64,7 @@ EXPOSE 8000
 
 ENV HOST=0.0.0.0 \
     PORT=8000 \
+    SFS_INSTALL=docker \
     DEBUG=false \
     PROJECTS_DIR=/data/projects \
     FRAME_CACHE_DIR=/data/frame_cache \

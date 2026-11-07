@@ -1,0 +1,3 @@
+# Build and test tools pinned alongside the app: the desktop freeze and CI.
+pyinstaller
+pytest

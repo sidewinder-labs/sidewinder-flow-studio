@@ -202,3 +202,7 @@ For the report viewer (Docker with `--profile reports`), add a **Report** node a
 | `IO Error ... file is being used by another process` (Windows) | Keep the data folder out of OneDrive/Dropbox: sync locks corrupt DuckDB files. |
 
 Logs: Docker `docker compose logs backend --tail 100`; desktop About → *Where is my data* → logs.
+
+**Reporting a bug:** click the FS logo → **Copy diagnostics** and paste the result into the [bug report form](https://github.com/sidewinder-labs/sidewinder-flow-studio/issues/new/choose). It lists the SFS version, how it's installed, the OS, plugins and library versions; no connections, paths or secrets.
+
+**Why the builds are reproducible:** the Docker images and the desktop app install every Python package at the version pinned in `locks/requirements.lock`, so the same release builds the same way on any day. Updates to those versions arrive as tested pull requests.

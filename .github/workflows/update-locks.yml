@@ -1,0 +1,62 @@
+# Python dependency updates as a deliberate pull request: weekly (or on
+# demand) re-resolve the locks to the newest versions pyproject.toml allows,
+# run the tests and build the Docker image on them, and open a PR with the
+# changes. Nothing ships until the PR is merged.
+#
+# Pull requests opened with the workflow token don't start other workflows,
+# so this one runs the checks itself before opening the PR.
+# Needs: Settings → Actions → General → "Allow GitHub Actions to create and
+# approve pull requests".
+name: Update Python locks
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"        # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Re-resolve the locks
+        run: |
+          pip install uv==0.13.7
+          scripts/lock.sh --upgrade
+          git diff --stat
+      - name: Changed?
+        id: changed
+        run: echo "any=$(git diff --quiet && echo no || echo yes)" >> "$GITHUB_OUTPUT"
+      - name: Tests on the new versions
+        if: steps.changed.outputs.any == 'yes'
+        run: |
+          python -m pip install -c locks/requirements.lock "./backend[dev,pushdown,fastread]" ./plugins/sfs-plugin-curvefit
+          python scripts/check_lock.py
+          (cd backend && python -m pytest -q)
+          (cd plugins/sfs-plugin-curvefit && python -m pytest -q)
+      - name: Docker image builds on the new versions
+        if: steps.changed.outputs.any == 'yes'
+        run: docker build -f backend/Dockerfile -t sfs-backend-lockcheck .
+      - name: Open the pull request
+        if: steps.changed.outputs.any == 'yes'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: deps/python-locks
+          delete-branch: true
+          commit-message: "Update the Python locks"
+          title: "Update the Python locks"
+          body: |
+            Weekly re-resolve of `locks/requirements.lock` and `reports-app/requirements.lock`
+            to the newest versions `pyproject.toml` allows. The backend and plugin tests
+            passed and the Docker image built on these versions before this PR was opened.
+
+            Before merging: build the desktop app (Actions → Desktop → Run workflow) and
+            look over the diff for major versions.
+          labels: dependencies

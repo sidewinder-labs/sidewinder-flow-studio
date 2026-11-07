@@ -102,9 +102,12 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: locks/requirements.lock
+      # Versions from the lock, so a rebuild months later ships the same libraries
       - name: Install the backend, bundled plugins and PyInstaller
-        run: python -m pip install "./backend[pushdown,fastread,clickhouse,mysql,oracle,trino,mssql]" ./plugins/sfs-plugin-curvefit pyinstaller pytest
+        run: python -m pip install -c locks/requirements.lock "./backend[pushdown,fastread,clickhouse,mysql,oracle,trino,mssql]" ./plugins/sfs-plugin-curvefit pyinstaller pytest
+      - name: Installed packages match the lock
+        run: python scripts/check_lock.py
       - name: Windows signing tool
         if: runner.os == 'Windows' && env.WIN_SIGNING == 'true'
         run: cargo install trusted-signing-cli --locked

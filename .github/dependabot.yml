@@ -1,0 +1,26 @@
+# Dependency updates arrive as pull requests, tested by CI before merging.
+# Python packages are handled by .github/workflows/update-locks.yml instead:
+# it re-resolves the locks as a whole, which keeps pyproject.toml's ranges
+# (compatibility) separate from the pins (what ships).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    groups:
+      actions: { patterns: ["*"] }
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule: { interval: monthly }
+  - package-ecosystem: cargo
+    directory: /desktop/src-tauri
+    schedule: { interval: monthly }
+    groups:
+      cargo: { patterns: ["*"] }

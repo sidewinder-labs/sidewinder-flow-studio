@@ -19,23 +19,30 @@ WORKDIR /app
 # Override with --build-arg SFS_EXTRAS=trino,pushdown (or SFS_EXTRAS= for core only).
 # The build context is the repository root (so plugins/ is visible):
 #   docker build -f backend/Dockerfile .
+# Versions come from locks/requirements.lock (a pip constraints file), so the
+# same commit builds the same image on any day; pyproject.toml only states ranges.
 ARG SFS_EXTRAS=all-connectors,pushdown
+COPY locks/requirements.lock /opt/sfs-lock/requirements.lock
+COPY scripts/check_lock.py /opt/sfs-lock/check_lock.py
 COPY backend/ .
-RUN pip install --no-cache-dir ".${SFS_EXTRAS:+[$SFS_EXTRAS]}"
+RUN pip install --no-cache-dir -c /opt/sfs-lock/requirements.lock ".${SFS_EXTRAS:+[$SFS_EXTRAS]}"
 
 # Plugins from plugins/, by short name (sfs-plugin-<name>), comma-separated.
 # Override with --build-arg SFS_PLUGINS=curvefit,sklearn (or SFS_PLUGINS= for none).
 ARG SFS_PLUGINS=curvefit
 COPY plugins/ /opt/sfs-plugins/
 RUN for p in $(echo "$SFS_PLUGINS" | tr ',' ' '); do \
-      pip install --no-cache-dir "/opt/sfs-plugins/sfs-plugin-$p" || exit 1; \
+      pip install --no-cache-dir -c /opt/sfs-lock/requirements.lock "/opt/sfs-plugins/sfs-plugin-$p" || exit 1; \
     done
 
 # httpx is sometimes skipped by pip's resolver as "already satisfied" in slim
 # base images even though it's not actually importable. Force it explicitly so
 # the module is guaranteed present.
-RUN pip install --no-cache-dir --force-reinstall --no-deps "httpx>=0.27.0" \
+RUN pip install --no-cache-dir --force-reinstall --no-deps -c /opt/sfs-lock/requirements.lock httpx \
     && python -c "import httpx; print('httpx', httpx.__version__, 'OK')"
+
+# Fail the build if anything installed differs from the lock.
+RUN python /opt/sfs-lock/check_lock.py /opt/sfs-lock/requirements.lock
 
 # One-line summary of installed connector drivers / pushdown engines.
 RUN python scripts/driver_summary.py
@@ -52,6 +59,7 @@ EXPOSE 8000
 # Environment overrides — set these in docker-compose or at runtime
 ENV HOST=0.0.0.0 \
     PORT=8000 \
+    SFS_INSTALL=docker \
     DEBUG=false \
     PROJECTS_DIR=/data/projects \
     FRAME_CACHE_DIR=/data/frame_cache \
