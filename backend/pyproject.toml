@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flow-studio-backend"
-version = "1.38"
+version = "1.39"
 description = "Sidewinder Flow Studio (SFS) — visual Python notebook DAG with scheduling"
 requires-python = ">=3.13"
 dependencies = [

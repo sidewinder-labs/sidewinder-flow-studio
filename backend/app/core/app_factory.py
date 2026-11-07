@@ -9,7 +9,7 @@ from pathlib import Path
 from app.core.config import settings
 from app.core.database import init_db
 from app.scheduler.scheduler import start_scheduler, stop_scheduler
-from app.api import projects, connections, execute, metadata, ws, agent, runs, custom_processors, capabilities, diagnostics, explore
+from app.api import projects, connections, execute, metadata, ws, agent, runs, custom_processors, capabilities, diagnostics, explore, plugins
 from app.api import function_library
 
 
@@ -72,10 +72,12 @@ def _quiet_access_log(path: str) -> None:
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Sidewinder Flow Studio API",
-        version="1.38",
+        version="1.39",
         description="Visual Python notebook DAG with scheduling",
         lifespan=lifespan,
     )
+    from app.engine import registry as _registry
+    _registry.APP_VERSION = app.version            # plugin packs check compatibility against it
 
     app.add_middleware(
         CORSMiddleware,
@@ -95,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(function_library.router, prefix="/api/function-library", tags=["library"])
     app.include_router(capabilities.router, prefix="/api/capabilities", tags=["capabilities"])
     app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["diagnostics"])
+    app.include_router(plugins.router,     prefix="/api/plugins",     tags=["plugins"])
     app.include_router(explore.router,     prefix="/api/explore",     tags=["explore"])
     app.include_router(ws.router,          prefix="/ws",              tags=["websocket"])
     @app.get(HEALTH_PATH, include_in_schema=False)

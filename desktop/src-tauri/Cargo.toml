@@ -1,6 +1,6 @@
 [package]
 name = "sfs-desktop"
-version = "1.38.0"
+version = "1.39.0"
 description = "Sidewinder Flow Studio — desktop edition"
 authors = ["Sidewinder Labs"]
 license = "AGPL-3.0-or-later"
