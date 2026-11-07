@@ -3,18 +3,34 @@
  * Opened by clicking the SFS logo in the top bar.
  */
 import { useEffect, useRef, useState } from 'react'
-import { X, GitBranch, Zap, Database, Sparkles, HardDrive } from 'lucide-react'
+import { X, GitBranch, Zap, Database, Sparkles, HardDrive, ClipboardCopy, Check } from 'lucide-react'
 import { useFeatures } from '@/utils/engines'
 import { api, type DesktopInfo } from '@/utils/api'
 import { DataLocations } from '@/components/desktop/DataLocations'
 
-export const SFS_VERSION = '1.37'
+export const SFS_VERSION = '1.38'
 
 export function AboutDialog({ onClose }: { onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const { desktop } = useFeatures()
   const [info, setInfo] = useState<DesktopInfo | null>(null)
   useEffect(() => { if (desktop) api.desktop.info().then(setInfo).catch(() => {}) }, [desktop])
+  // Diagnostics for bug reports: versions and install type, nothing sensitive
+  const [diag, setDiag] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const copyDiagnostics = async () => {
+    try {
+      const text = (await api.diagnostics()).text
+      setDiag(text)
+      try { await navigator.clipboard.writeText(text) }
+      catch {                                 // no clipboard API over plain http: select-and-copy fallback
+        const t = Object.assign(document.createElement('textarea'), { value: text })
+        document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove()
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (e) { setDiag(`Could not read diagnostics: ${String((e as Error).message ?? e)}`) }
+  }
   const showWelcome = async () => {
     await api.desktop.showWelcomeAgain().catch(() => {})
     onClose()
@@ -94,6 +110,18 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         )}
+
+        {/* Diagnostics, for bug reports */}
+        <div className="pt-3 border-t border-canvas-border space-y-2">
+          <button className="btn-ghost text-xs gap-1.5 border border-canvas-border" onClick={copyDiagnostics}
+                  title="SFS version, install type, OS, plugins and library versions. No connections, paths or secrets.">
+            {copied ? <Check size={12} className="text-status-ok" /> : <ClipboardCopy size={12} />}
+            {copied ? 'Copied' : 'Copy diagnostics'}
+          </button>
+          {diag && <pre className="text-[11px] font-mono text-muted bg-canvas-bg border border-canvas-border rounded-lg p-2 whitespace-pre-wrap select-all"
+                        data-testid="diagnostics">{diag}</pre>}
+          {diag && <div className="text-[11px] text-subtle">Paste this into a bug report.</div>}
+        </div>
 
         {/* Footer */}
         <div className="pt-2 border-t border-canvas-border flex items-center justify-between text-xs text-subtle">

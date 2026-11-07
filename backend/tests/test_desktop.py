@@ -16,7 +16,7 @@ from app import desktop
 
 BACKEND = Path(__file__).resolve().parents[1]
 SETTINGS_VARS = ("PROJECTS_DIR", "FRAME_CACHE_DIR", "REPORTS_DIR", "PERSIST_DB", "METADATA_DB_URL",
-                 "SECRET_KEY", "SERVE_STATIC", "STATIC_DIR", "DEBUG", "HOST", "SFS_DESKTOP", "SFS_ENV_FILE", "SFS_DATA_DIR")
+                 "SECRET_KEY", "SERVE_STATIC", "STATIC_DIR", "DEBUG", "HOST", "SFS_DESKTOP", "SFS_ENV_FILE", "SFS_DATA_DIR", "SFS_INSTALL")
 
 
 def test_data_dirs_point_into_the_data_dir(tmp_path):

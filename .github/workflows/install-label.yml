@@ -1,0 +1,47 @@
+# Bug reports from source installs: label them and ask, once, for a
+# reproduction on the desktop app or Docker, the two supported installs.
+# Reads the issue form's "Installation" answer (or a pasted diagnostics block);
+# editing the issue to a supported install removes the label.
+name: Install type
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const body = context.payload.issue.body || ''
+            const answer = (body.match(/### Installation\s+([^\n]+)/) || [])[1] || ''
+            const fromSource = /built from source/i.test(answer) || /^Install: Built from source/m.test(body)
+            const label = 'unsupported-install'
+            const { owner, repo } = context.repo
+            const issue_number = context.payload.issue.number
+            const had = (context.payload.issue.labels || []).some((l) => l.name === label)
+            if (!fromSource) {                                      // edited to a supported install
+              if (had) await github.rest.issues.removeLabel({ owner, repo, issue_number, name: label })
+              return
+            }
+            try {
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'd4c5f9',
+                description: 'Reported from a source install; needs a reproduction on desktop or Docker' })
+            } catch (e) { if (e.status !== 422) throw e }          // 422: it already exists
+            await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [label] })
+            if (had) return                                         // asked already
+            await github.rest.issues.createComment({ owner, repo, issue_number, body: [
+              'Thanks for the report. This one comes from a build from source, which is a way to develop SFS',
+              'but not a supported way to run it: a source environment can have library versions or missing',
+              'drivers that the releases never ship with.',
+              '',
+              'Could you check whether it also happens in the **desktop app**',
+              '([download](https://sidewinderlabs.dev/download/)) or in **Docker**',
+              '([installation](https://github.com/sidewinder-labs/sidewinder-flow-studio/blob/main/docs/INSTALLATION.md))?',
+              'If it does, edit the issue to that installation and paste its diagnostics: the label comes off by itself.',
+            ].join('\n') })

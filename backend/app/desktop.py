@@ -60,6 +60,7 @@ def desktop_environment(data_dir: Path, environ: dict | None = None) -> dict[str
         "DEBUG": "false",
         "HOST": "127.0.0.1",
         "SFS_DESKTOP": "1",
+        "SFS_INSTALL": "desktop",            # reported by /api/diagnostics
         "SFS_DATA_DIR": str(data_dir),
         # Optional settings file (e.g. ANTHROPIC_API_KEY); never the .env of
         # the folder the app happened to be launched from.

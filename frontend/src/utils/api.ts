@@ -131,6 +131,8 @@ export interface ConnectionImportResult {
 }
 
 export const api = {
+  diagnostics: () => req<{ install: 'docker' | 'desktop' | 'source'; version: string; text: string }>('/diagnostics/'),
+
   projects: {
     list:   ()           => req<Project[]>('/projects/'),
     get:    (id: string) => req<Project>(`/projects/${id}`),

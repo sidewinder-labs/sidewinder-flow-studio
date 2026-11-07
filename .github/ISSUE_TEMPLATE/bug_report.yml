@@ -1,0 +1,58 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. SFS is supported as the **desktop app** or in **Docker**.
+        If you built it from source, please check whether the problem also happens in
+        one of those first: a source environment can fail in ways the builds don't.
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation
+      description: How are you running SFS?
+      options:
+        - Desktop app
+        - Docker
+        - Built from source (unsupported)
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Click the FS logo (top left) → **Copy diagnostics**, and paste here. It holds versions only, no connections or secrets.
+      render: text
+      placeholder: |
+        SFS 1.38
+        Install: Docker
+        OS: Linux 6.8 (x86_64)
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+  - type: input
+    id: engine
+    attributes:
+      label: Engine and database involved
+      placeholder: e.g. DuckDB node reading from PostgreSQL
+  - type: textarea
+    id: error
+    attributes:
+      label: Error output
+      description: The node's error panel text, and the backend log (Docker `docker compose logs backend --tail 50`; desktop About → Where is my data → logs). Check it for anything private before posting.
+      render: text
