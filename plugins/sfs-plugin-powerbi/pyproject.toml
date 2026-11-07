@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sfs-plugin-powerbi"
+version = "0.1.0"
+description = "Power BI semantic model refresh for Sidewinder Flow Studio"
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0-or-later" }
+dependencies = ["msal>=1.28", "httpx>=0.27"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pandas>=2.2"]
+
+[project.entry-points."sfs.plugins"]
+powerbi = "sfs_plugin_powerbi.plugin:register"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sfs_plugin_powerbi*"]

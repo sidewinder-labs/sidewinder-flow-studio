@@ -7,16 +7,20 @@ package that registers one or more execution engines through the
 | Plugin | Engine | Status |
 |---|---|---|
 | [sfs-plugin-sklearn](sfs-plugin-sklearn) | `scikit-learn` (in-process) and `scikit-learn (isolated)` | reference implementation |
-| [sfs-plugin-curvefit](sfs-plugin-curvefit) | `Curve fit`, `Evaluate model` (lmfit), chart template *Fit with residuals* | included in the Docker images; see [docs/CURVE_FITTING.md](../docs/CURVE_FITTING.md) |
+| [sfs-plugin-curvefit](sfs-plugin-curvefit) | `Curve fit`, `Evaluate model` (lmfit), chart template *Fit with residuals* | in the desktop app and Docker images; see [docs/CURVE_FITTING.md](../docs/CURVE_FITTING.md) |
+| [sfs-plugin-tm1](sfs-plugin-tm1) | `TM1 read`, `TM1 load` (TM1py), connection type `tm1` | in the desktop app and Docker images |
+| [sfs-plugin-powerbi](sfs-plugin-powerbi) | `Power BI refresh` (enhanced refresh API), connection type `powerbi` | in the desktop app and Docker images |
 
 ## Installing
 
-The desktop app and the Docker images include **curvefit**. In Docker, the
-image installs the plugins listed in `SFS_PLUGINS` in `.env`; add one and
-rebuild the backend:
+The desktop app and the Docker images include **curvefit**, **tm1** and **powerbi**;
+newer versions and other official plugins install from the **Plugins** menu
+(signed packs, see [docs/PLUGINS.md](../docs/PLUGINS.md#official-plugin-packs)).
+To build one into a Docker image instead, list it in `SFS_PLUGINS` in `.env`
+and rebuild the backend:
 
 ```bash
-SFS_PLUGINS=curvefit,sklearn
+SFS_PLUGINS=curvefit,tm1,powerbi,sklearn
 docker compose build --no-cache backend && docker compose up -d
 ```
 

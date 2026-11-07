@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '@/store'
 import { api } from '@/utils/api'
+import { useConnectionTypes } from '@/utils/engines'
 
 export interface EngineParam {
   key: string
@@ -23,6 +24,8 @@ export interface EngineParam {
   required?: boolean
   options?: (string | SelectOption)[]
   help?: string
+  /** type "connection": only connections of these dialects (default: SQL databases) */
+  dialects?: string[]
 }
 
 export interface SelectOption {
@@ -53,6 +56,7 @@ interface Props {
 export function EngineParams({ params, data, nodeId, onChange }: Props) {
   const { activeProject, activeFlowId, connections } = useStore()
   const [columns, setColumns] = useState<{ name: string; dtype: string }[]>([])
+  const pluginDialects = new Set(useConnectionTypes().map((t) => t.dialect))
 
   const needsColumns = params.some((p) => p.type === 'column')
 
@@ -132,9 +136,11 @@ export function EngineParams({ params, data, nodeId, onChange }: Props) {
               <select id={id} className="input text-xs" value={value as any}
                 onChange={(e) => onChange(p.key, e.target.value)}>
                 <option value="">— pick a connection —</option>
-                {connections.map((c: any) => (
-                  <option key={c.id} value={c.name}>{c.name} ({c.dialect})</option>
-                ))}
+                {connections
+                  .filter((c: any) => p.dialects?.length ? p.dialects.includes(c.dialect) : !pluginDialects.has(c.dialect))
+                  .map((c: any) => (
+                    <option key={c.id} value={c.name}>{c.name} ({c.dialect})</option>
+                  ))}
               </select>
             )
             break

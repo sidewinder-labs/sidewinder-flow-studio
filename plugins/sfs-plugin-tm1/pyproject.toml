@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sfs-plugin-tm1"
+version = "0.1.0"
+description = "IBM Planning Analytics (TM1) for Sidewinder Flow Studio — read cubes and load data into them"
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0-or-later" }
+dependencies = ["TM1py>=2.1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pandas>=2.2"]
+
+[project.entry-points."sfs.plugins"]
+tm1 = "sfs_plugin_tm1.plugin:register"
+
+[tool.setuptools.package-data]
+"sfs_plugin_tm1.examples" = ["*.csv"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sfs_plugin_tm1*"]

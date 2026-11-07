@@ -6,7 +6,7 @@ services:
       dockerfile: backend/Dockerfile
       args:
         SFS_EXTRAS: "${SFS_EXTRAS-all-connectors,pushdown}"   # see .env.docker
-        SFS_PLUGINS: "${SFS_PLUGINS-curvefit}"                 # see .env.docker
+        SFS_PLUGINS: "${SFS_PLUGINS-curvefit,tm1,powerbi}"                 # see .env.docker
     container_name: flow-studio-backend
     restart: unless-stopped
     environment:

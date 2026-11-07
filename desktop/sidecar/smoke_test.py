@@ -25,7 +25,9 @@ from pathlib import Path
 
 READY_TIMEOUT = 180          # first start on a cold CI disk is slow (macOS scans the bundle)
 RUN_TIMEOUT = 240           # first imports of SciPy and friends are slow on Windows
-ENGINES = {"pandas", "duckdb", "polars", "sql", "ibis", "curvefit_fit", "curvefit_eval"}
+ENGINES = {"pandas", "duckdb", "polars", "sql", "ibis", "curvefit_fit", "curvefit_eval",
+           "tm1_read", "tm1_load", "powerbi_refresh"}
+CONNECTION_TYPES = {"tm1", "powerbi"}
 
 GEN = """import numpy as np
 from scipy import stats
@@ -109,7 +111,10 @@ def main(exe: str) -> None:
             fail(f"engines missing or unavailable: {sorted(ENGINES - available)}")
         if not caps["features"].get("desktop") or caps["features"].get("reports"):
             fail(f"unexpected features: {caps['features']}")
-        print("capabilities ok:", sorted(available), flush=True)
+        types = {t["dialect"] for t in caps.get("connection_types", [])}
+        if CONNECTION_TYPES - types:
+            fail(f"connection types missing: {sorted(CONNECTION_TYPES - types)}")
+        print("capabilities ok:", sorted(available), "connection types:", sorted(types), flush=True)
 
         # ── a flow through every engine ──
         call("/api/connections/", {"name": "lite", "dialect": "sqlite", "database": str(data / "smoke.sqlite")})

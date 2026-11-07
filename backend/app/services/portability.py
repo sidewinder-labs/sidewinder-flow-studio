@@ -326,7 +326,8 @@ async def import_connections(db, bundle: dict, on_conflict: dict[str, str], vari
             continue
         req = c.get("requires") or {}
         fields = {k: c.get(k) for k in ("dialect", "host", "port", "database", "username")}
-        plain = {k: v for k, v in (c.get("extra_params") or {}).items() if not is_secret(k)}
+        plain = {k: v for k, v in (c.get("extra_params") or {}).items()
+                 if not is_secret(k) and not cs._secret_key(k, c.get("dialect"))}
         action = on_conflict.get(name, "skip") if name in existing else "create"
         if action.startswith("rename:"):
             new = action.split(":", 1)[1].strip()

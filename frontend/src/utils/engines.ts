@@ -3,7 +3,7 @@
  * the engine list (node cards, the processor panel) or the feature flags.
  */
 import { useEffect, useState } from 'react'
-import { api, type HelperDoc, type Snippet } from './api'
+import { api, type ConnectionType, type HelperDoc, type Snippet } from './api'
 
 export type EngineInfo = Awaited<ReturnType<typeof api.capabilities>>['engines'][number] & {
   params?: { key: string; label?: string; type?: string; default?: unknown; required?: boolean;
@@ -15,6 +15,7 @@ export type EngineInfo = Awaited<ReturnType<typeof api.capabilities>>['engines']
 let cache: EngineInfo[] | null = null
 let features: Record<string, boolean> | null = null
 let help: { helpers: HelperDoc[]; snippets: Snippet[] } | null = null
+let connTypes: ConnectionType[] | null = null
 let pending: Promise<EngineInfo[]> | null = null
 
 export function loadEngines(): Promise<EngineInfo[]> {
@@ -23,6 +24,7 @@ export function loadEngines(): Promise<EngineInfo[]> {
     .then((c) => {
       features = c?.features ?? {}
       help = { helpers: c?.helpers ?? [], snippets: c?.snippets ?? [] }
+      connTypes = c?.connection_types ?? []
       return (cache = (c?.engines ?? []) as EngineInfo[])
     })
     .catch(() => { pending = null; return [] })
@@ -67,6 +69,17 @@ export function paramSummary(engine: EngineInfo | undefined, data: Record<string
     parts.push(`${p.label ?? p.key}: ${v}`)
   }
   return parts.join(' · ')
+}
+
+/** Connection kinds plugins add; empty until loaded. */
+export function useConnectionTypes(): ConnectionType[] {
+  const [t, setT] = useState<ConnectionType[]>(connTypes ?? [])
+  useEffect(() => {
+    let live = true
+    if (!connTypes) loadEngines().then(() => { if (live) setT(connTypes ?? []) })
+    return () => { live = false }
+  }, [])
+  return t
 }
 
 /** The function reference and examples for the help panel; empty until loaded. */

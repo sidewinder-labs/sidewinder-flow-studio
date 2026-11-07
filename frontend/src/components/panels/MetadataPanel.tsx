@@ -6,6 +6,8 @@ import { useStore } from '@/store'
 import { api, type ConnectionBundle } from '@/utils/api'
 import { downloadJson, pickJson } from '@/utils/download'
 import { ConnectionImport } from './ConnectionImport'
+import { useConnectionTypes } from '@/utils/engines'
+import type { ConnectionType } from '@/utils/api'
 import { AgentProvidersPanel } from './AgentProvidersPanel'
 import { useEffect as _useEffect, useState as _useState } from 'react'
 import type { RunRow } from '@/types'
@@ -83,6 +85,11 @@ export function MetadataPanel() {
   const [varForm, setVarForm] = useState({ key:'', value:'', description:'' })
 
   const blankForm = { name:'', dialect:'postgresql', host:'', port:'', database:'', username:'', password:'', extra:'' }
+  // Plugin connection types (TM1, Power BI…): fields declared by the plugin
+  const connTypes = useConnectionTypes()
+  const ctype = connTypes.find((t) => t.dialect === form.dialect)
+  const [pfields, setPfields] = useState<Record<string, any>>({})
+  const [testMsg, setTestMsg] = useState<Record<string, string>>({})
   // Secret options stay on the server; the form lists their names and can remove them
   const [secrets, setSecrets] = useState<string[]>([])
   const [clearSecrets, setClearSecrets] = useState<string[]>([])
@@ -108,6 +115,7 @@ export function MetadataPanel() {
       : ''
     setSecrets(c.secret_extras ?? [])
     setClearSecrets([])
+    setPfields({ ...(c.extra_params ?? {}) })
     setForm({
       name: c.name ?? '', dialect: c.dialect ?? 'postgresql',
       host: c.host ?? '', port: c.port ? String(c.port) : '',
@@ -120,6 +128,16 @@ export function MetadataPanel() {
   }
 
   const addConn = async () => {
+    if (ctype) {
+      // Secret fields left blank are kept by the server (like a blank password)
+      const extra_params = Object.fromEntries(Object.entries(pfields).filter(([, v]) => v !== '' && v != null))
+      const payload = { name: form.name, dialect: form.dialect, extra_params }
+      if (editingId) await api.connections.update(editingId, payload)
+      else await api.connections.create(payload)
+      setShowAdd(false); setEditingId(null); setForm(blankForm); setPfields({}); setSecrets([])
+      await loadConnections()
+      return
+    }
     // Parse "k=v&k2=v2" extras into a dict for extra_params
     const extra_params: Record<string, string> = {}
     form.extra.split('&').map((kv) => kv.trim()).filter(Boolean).forEach((kv) => {
@@ -156,6 +174,7 @@ export function MetadataPanel() {
     setTestRes((r) => ({ ...r, [id]: null }))
     const res = await api.connections.test(id)
     setTestRes((r) => ({ ...r, [id]: res.ok }))
+    setTestMsg((m) => ({ ...m, [id]: res.ok ? ((res as any).message || '') : (res.error || 'Failed') }))
   }
 
   const addVar = async () => {
@@ -198,6 +217,9 @@ export function MetadataPanel() {
               <div className="text-xs text-muted font-mono">
                 {c.host}{c.port ? `:${c.port}` : ''}{c.database ? `/${c.database}` : ''}
               </div>
+              {testMsg[c.id] && testRes[c.id] !== null && (
+                <div className={`text-[11px] break-words ${testRes[c.id] ? 'text-status-ok' : 'text-red-300'}`}>{testMsg[c.id]}</div>
+              )}
               {c.needs_credentials && (
                 <button onClick={() => startEdit(c)}
                   className="text-[11px] rounded px-1.5 py-0.5 bg-amber-500/15 text-amber-300 flex items-center gap-1"
@@ -216,7 +238,13 @@ export function MetadataPanel() {
                   <input className="input" value={form.name} onChange={(e) => setForm({...form,name:e.target.value})} /></div>
                 <div className="col-span-2"><label className="label">Dialect</label>
                   <select className="input" value={form.dialect} onChange={(e) => setForm({...form,dialect:e.target.value})}>
-                    {DIALECTS.map((d) => <option key={d}>{d}</option>)}</select></div>
+                    {DIALECTS.map((d) => <option key={d}>{d}</option>)}
+                    {connTypes.length > 0 && <optgroup label="From plugins">
+                      {connTypes.map((t) => <option key={t.dialect} value={t.dialect}>{t.label}</option>)}
+                    </optgroup>}</select></div>
+                {ctype ? (
+                  <PluginFields ctype={ctype} values={pfields} onChange={setPfields} stored={secrets} />
+                ) : (<>
                 <div><label className="label">Host</label>
                   <input className="input font-mono" value={form.host} onChange={(e) => setForm({...form,host:e.target.value})} placeholder={DIALECT_HINTS[form.dialect]?.host ?? 'localhost'} /></div>
                 <div><label className="label">Port</label>
@@ -250,6 +278,7 @@ export function MetadataPanel() {
                     </div>
                   )}
                 </div>
+                </>)}
               </div>
               <div className="flex gap-2">
                 <button className="btn-pri flex-1" onClick={addConn}>{editingId ? 'Save changes' : 'Add'}</button>
@@ -306,5 +335,57 @@ export function MetadataPanel() {
         </div>
       )}
     </div>
+  )
+}
+
+/** The fields a plugin's connection type declares. Secret fields are never
+ *  pre-filled: blank keeps the stored value. `show_when` hides fields that
+ *  belong to another mode (e.g. TM1 authentication). */
+function PluginFields({ ctype, values, onChange, stored }: {
+  ctype: ConnectionType; values: Record<string, any>; onChange: (v: Record<string, any>) => void; stored: string[]
+}) {
+  const val = (k: string, d?: unknown) => (values[k] ?? d ?? '')
+  const visible = (f: ConnectionType['fields'][number]) =>
+    !f.show_when || Object.entries(f.show_when).every(([k, allowed]) => allowed.includes(String(val(k, ctype.fields.find((x) => x.key === k)?.default))))
+  return (
+    <>
+      {ctype.description && <p className="col-span-2 text-[11px] text-muted">{ctype.description}</p>}
+      {ctype.fields.filter(visible).map((f) => {
+        const set = (v: unknown) => onChange({ ...values, [f.key]: v })
+        const label = <label className="label">{f.label ?? f.key}{f.required && <span className="text-red-400"> *</span>}</label>
+        let input: React.ReactNode
+        if (f.type === 'boolean') {
+          const checked = values[f.key] ?? f.default ?? false
+          return (
+            <label key={f.key} className="col-span-2 flex items-center gap-2 text-xs text-slate-300">
+              <input type="checkbox" checked={!!checked} onChange={(e) => set(e.target.checked)} /> {f.label ?? f.key}
+            </label>
+          )
+        }
+        if (f.type === 'select') {
+          input = (
+            <select className="input text-xs" value={String(val(f.key, f.default))} onChange={(e) => set(e.target.value)}>
+              {(f.options ?? []).map((o) => {
+                const opt = typeof o === 'string' ? { value: o, label: o } : o
+                return <option key={opt.value} value={opt.value}>{opt.label ?? opt.value}</option>
+              })}
+            </select>
+          )
+        } else if (f.type === 'secret') {
+          input = <input type="password" className="input" value={values[f.key] ?? ''} onChange={(e) => set(e.target.value)}
+                         placeholder={stored.includes(f.key) ? 'stored: leave blank to keep' : ''} autoComplete="new-password" />
+        } else {
+          input = <input type={f.type === 'number' ? 'number' : 'text'} className="input font-mono text-xs"
+                         value={String(val(f.key))} placeholder={f.default != null ? String(f.default) : ''}
+                         onChange={(e) => set(f.type === 'number' && e.target.value !== '' ? Number(e.target.value) : e.target.value)} />
+        }
+        return (
+          <div key={f.key} className="col-span-2">
+            {label}{input}
+            {f.help && <div className="text-[11px] text-subtle mt-0.5">{f.help}</div>}
+          </div>
+        )
+      })}
+    </>
   )
 }

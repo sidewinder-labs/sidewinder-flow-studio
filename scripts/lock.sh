@@ -15,6 +15,8 @@ uv pip compile --universal --python-version 3.13 --all-extras --quiet \
   backend/pyproject.toml \
   plugins/sfs-plugin-curvefit/pyproject.toml \
   plugins/sfs-plugin-sklearn/pyproject.toml \
+  plugins/sfs-plugin-tm1/pyproject.toml \
+  plugins/sfs-plugin-powerbi/pyproject.toml \
   locks/tools.in \
   -o locks/requirements.lock "$@"
 echo "locks/requirements.lock: $(grep -cE '^[a-z0-9]' locks/requirements.lock) packages"

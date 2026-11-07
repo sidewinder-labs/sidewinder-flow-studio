@@ -12,7 +12,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.engine import executor as _executor  # noqa: F401 — registers builtins
-from app.engine.registry import ENGINES, list_engines, list_examples, list_templates, loaded_plugins
+from app.engine.registry import (ENGINES, list_connection_types, list_engines, list_examples,
+                                 list_templates, loaded_plugins)
 from app.help.examples import list_examples as list_snippets
 from app.help.reference import helper_reference, library_reference
 
@@ -34,6 +35,8 @@ async def get_capabilities():
         "plugins": loaded_plugins(),
         "templates": list_templates(),
         "examples": list_examples(),
+        # Connection kinds plugins add (TM1, Power BI…): fields for Meta → Connections
+        "connection_types": list_connection_types(),
         # In-app help: the function reference (from the helpers' own signatures
         # and docstrings) and ready-to-insert code examples
         "helpers": helper_reference() + library_reference(),

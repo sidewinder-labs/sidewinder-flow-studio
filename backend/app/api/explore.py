@@ -116,8 +116,9 @@ async def list_sources(db: AsyncSession = Depends(get_db)):
     out = await run_in_threadpool(sources.list_cached)
     # Names and dialects only — credentials never leave the connection service.
     # Browser settings are non-secret (they export with the connection).
+    from app.engine.registry import connection_type
     out["connections"] = [{"name": c.name, "dialect": c.dialect, "browser": browser_settings(c)}
-                          for c in await list_connections(db)]
+                          for c in await list_connections(db) if connection_type(c.dialect) is None]
     return out
 
 

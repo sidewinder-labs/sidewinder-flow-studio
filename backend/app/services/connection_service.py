@@ -62,14 +62,24 @@ def read_extras(conn) -> dict:
     return out
 
 
-def _seal(extras: dict) -> str | None:
-    """Options dict → stored JSON, encrypting secret values not yet encrypted."""
+def _secret_key(key: str, dialect: str | None) -> bool:
+    """Secret by name (secret_keys) or declared `secret` by a plugin connection type."""
+    from app.engine.registry import secret_fields
     from app.services.secret_keys import is_secret
+    return is_secret(key) or key in secret_fields(dialect)
+
+
+def _sealed(v) -> bool:
+    return isinstance(v, dict) and _ENC in v
+
+
+def _seal(extras: dict, dialect: str | None = None) -> str | None:
+    """Options dict → stored JSON, encrypting secret values not yet encrypted."""
     out = {}
     for k, v in extras.items():
         if v in (None, ""):
             continue
-        if is_secret(k) and not (isinstance(v, dict) and _ENC in v):
+        if _secret_key(k, dialect) and not _sealed(v):
             v = {_ENC: encrypt(str(v))}
         out[k] = v
     return json.dumps(out, sort_keys=True) if out else None
@@ -97,13 +107,13 @@ def needs_credentials(conn) -> bool:
 def public(conn) -> dict:
     """What the API returns: never a password or a secret option's value —
     only the names of the secret options that are set."""
-    from app.services.secret_keys import is_secret
     raw = _raw_extras(conn)
+    hidden = {k for k, v in raw.items() if _sealed(v) or _secret_key(k, conn.dialect)}
     return {
         "id": conn.id, "name": conn.name, "dialect": conn.dialect,
         "host": conn.host, "port": conn.port, "database": conn.database, "username": conn.username,
-        "extra_params": {k: v for k, v in raw.items() if not is_secret(k)} or None,
-        "secret_extras": sorted(k for k in raw if is_secret(k)),
+        "extra_params": {k: v for k, v in raw.items() if k not in hidden} or None,
+        "secret_extras": sorted(hidden),
         "has_password": bool(conn.password_enc),
         "browser": browser_settings(conn),
         "needs": needs(conn),
@@ -346,7 +356,7 @@ async def create_connection(db: AsyncSession, data: dict) -> Connection:
         database=data.get("database"),
         username=data.get("username"),
         password_enc=encrypt(data["password"]) if data.get("password") else None,
-        extra_params=_seal(data.get("extra_params") or {}),
+        extra_params=_seal(data.get("extra_params") or {}, data["dialect"]),
     )
     if data.get("browser") or data.get("needs"):
         _set_options(conn, browser=data.get("browser") or None,
@@ -369,16 +379,15 @@ def merge_extras(conn, incoming: dict | None, clear: list[str]) -> str | None:
     option it doesn't send is kept (like a blank password); one it sends with a
     value replaces the stored one; names in `clear` are removed. With incoming
     None, only `clear` applies."""
-    from app.services.secret_keys import is_secret
     current = _raw_extras(conn)
     if incoming is None:
         merged = dict(current)
     else:
-        merged = {k: v for k, v in current.items() if is_secret(k)}
+        merged = {k: v for k, v in current.items() if _sealed(v) or _secret_key(k, conn.dialect)}
         merged.update({k: v for k, v in incoming.items() if v not in (None, "")})
     for k in clear:
         merged.pop(k, None)
-    return _seal(merged)
+    return _seal(merged, conn.dialect)
 
 
 def _settle_needs(conn) -> None:
@@ -418,6 +427,17 @@ async def update_connection(db: AsyncSession, conn_id: str, data: dict) -> Conne
 async def test_connection(conn: Connection) -> dict:
     if needs_credentials(conn):
         return {"ok": False, "error": connection_maps([conn])["broken"][conn.name]}
+    from app.engine.registry import connection_type
+    ctype = connection_type(conn.dialect)
+    if ctype is not None:
+        if ctype["test"] is None:
+            return {"ok": False, "error": f"{ctype['label']} connections have no test."}
+        from fastapi.concurrency import run_in_threadpool
+        try:
+            ok, message = await run_in_threadpool(ctype["test"], _fields(conn, ctype))
+        except Exception as exc:                       # a plugin's test must not 500 the button
+            ok, message = False, f"{type(exc).__name__}: {exc}"
+        return {"ok": bool(ok), "error": None if ok else str(message), "message": str(message or "")}
     if conn.dialect == "adls":
         try:
             import adlfs
@@ -453,6 +473,64 @@ async def test_connection(conn: Connection) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+# ── Plugin connection types at run time ──────────────────────────────────────
+
+def _fields(conn, ctype: dict) -> dict:
+    """A plugin connection's field values, secrets decrypted and defaults applied."""
+    values = read_extras(conn)
+    out = {}
+    for f in ctype["fields"]:
+        v = values.get(f["key"], f.get("default"))
+        if f.get("type") == "number" and v not in (None, ""):
+            try:
+                v = float(v); v = int(v) if v == int(v) else v
+            except (TypeError, ValueError):
+                pass
+        if f.get("type") == "boolean" and isinstance(v, str):
+            v = v.strip().lower() in ("1", "true", "yes", "on")
+        out[f["key"]] = v
+    return out
+
+
+_sync_engines: dict = {}
+
+
+def _metadata_engine():
+    import sqlalchemy as sa
+    url = settings.METADATA_DB_URL.replace("sqlite+aiosqlite", "sqlite")
+    if url not in _sync_engines:
+        _sync_engines[url] = sa.create_engine(url)
+    return _sync_engines[url]
+
+
+def plugin_connection(name: str, dialect: str | None = None) -> dict:
+    """{"name", "dialect", **fields} of one connection, for plugin engines at run
+    time (RegistryAPI.get_connection). Read when a node asks, so a broken
+    connection only fails the nodes that use it."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import Session
+    from app.engine.registry import connection_type
+    if not name:
+        raise ValueError("No connection chosen: pick one in the node's Connection field.")
+    with Session(_metadata_engine()) as s:
+        conn = s.execute(_select(Connection).where(Connection.name == name)).scalar_one_or_none()
+        if conn is None:
+            raise ValueError(f"Connection '{name}' not found. Add it in Meta → Connections.")
+        if dialect and conn.dialect != dialect:
+            want = (connection_type(dialect) or {}).get("label", dialect)
+            raise ValueError(f"Connection '{name}' is a {conn.dialect} connection; this node needs {want}.")
+        if needs_credentials(conn):
+            raise ValueError(connection_maps([conn])["broken"][name])
+        ctype = connection_type(conn.dialect)
+        try:
+            fields = _fields(conn, ctype) if ctype else {
+                **read_extras(conn), "host": conn.host, "port": conn.port, "database": conn.database,
+                "username": conn.username, "password": decrypt(conn.password_enc) if conn.password_enc else None}
+        except CredentialError as exc:
+            raise ValueError(f"Connection '{name}' is unusable: {exc}") from None
+        return {"name": conn.name, "dialect": conn.dialect, **fields}
+
+
 def connection_maps(conns) -> dict:
     """Build every per-connection map a run needs, isolating failures.
 
@@ -466,8 +544,15 @@ def connection_maps(conns) -> dict:
     cargs: dict[str, dict] = {}
     storage: dict[str, dict] = {}
     broken: dict[str, str] = {}
+    from app.engine.registry import connection_type
     for c in conns:
         dialects[c.name] = c.dialect
+        ctype = connection_type(c.dialect)
+        if ctype is not None and not needs_credentials(c):
+            # Not a database: get_engine() on it explains instead of failing obscurely
+            urls[c.name] = (BROKEN_URL_PREFIX + f"Connection '{c.name}' is a {ctype['label']} connection, "
+                            "not a SQL database. Use it in the nodes made for it.")
+            continue
         if needs_credentials(c):
             n = needs(c)
             what = " and ".join(filter(None, ["its password" if n["password"] else "",

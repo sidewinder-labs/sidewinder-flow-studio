@@ -161,7 +161,9 @@ httpcore==1.0.9
 httptools==0.9.0
     # via uvicorn
 httpx==0.28.1
-    # via flow-studio-backend (backend/pyproject.toml)
+    # via
+    #   flow-studio-backend (backend/pyproject.toml)
+    #   sfs-plugin-powerbi (plugins/sfs-plugin-powerbi/pyproject.toml)
 ibis-framework==12.0.0
     # via flow-studio-backend (backend/pyproject.toml)
 idna==3.20
@@ -170,6 +172,8 @@ idna==3.20
     #   httpx
     #   requests
     #   yarl
+ijson==3.6.0
+    # via tm1py
 iniconfig==2.3.1
     # via pytest
 isodate==0.7.2
@@ -195,12 +199,15 @@ matplotlib==3.11.2
     #   seaborn
 mdurl==0.1.2
     # via markdown-it-py
+mdxpy==1.3.2
+    # via tm1py
 mmh3==5.3.1
     # via pyiceberg
 mpmath==1.3.0
     # via sympy
 msal==1.39.0
     # via
+    #   sfs-plugin-powerbi (plugins/sfs-plugin-powerbi/pyproject.toml)
     #   azure-identity
     #   msal-extensions
 msal-extensions==1.3.1
@@ -249,6 +256,8 @@ pandas==3.1.1
     # via
     #   flow-studio-backend (backend/pyproject.toml)
     #   sfs-plugin-curvefit (plugins/sfs-plugin-curvefit/pyproject.toml)
+    #   sfs-plugin-powerbi (plugins/sfs-plugin-powerbi/pyproject.toml)
+    #   sfs-plugin-tm1 (plugins/sfs-plugin-tm1/pyproject.toml)
     #   databricks-sql-connector
     #   seaborn
 parsy==2.2
@@ -330,6 +339,8 @@ pyparsing==3.3.3
     # via
     #   matplotlib
     #   pyiceberg
+pypiwin32==223 ; sys_platform == 'win32'
+    # via requests-negotiate-sspi
 pyroaring==1.2.0
     # via pyiceberg
 pytest==9.2.0
@@ -337,6 +348,8 @@ pytest==9.2.0
     #   -r locks/tools.in
     #   flow-studio-backend (backend/pyproject.toml)
     #   sfs-plugin-curvefit (plugins/sfs-plugin-curvefit/pyproject.toml)
+    #   sfs-plugin-powerbi (plugins/sfs-plugin-powerbi/pyproject.toml)
+    #   sfs-plugin-tm1 (plugins/sfs-plugin-tm1/pyproject.toml)
     #   pytest-asyncio
 pytest-asyncio==1.4.1.post1
     # via flow-studio-backend (backend/pyproject.toml)
@@ -360,7 +373,10 @@ pytz==2026.6
     # via
     #   clickhouse-driver
     #   snowflake-connector-python
+    #   tm1py
     #   trino
+pywin32==312 ; sys_platform == 'win32'
+    # via pypiwin32
 pywin32-ctypes==0.2.3 ; sys_platform == 'win32'
     # via pyinstaller
 pyyaml==6.0.3
@@ -375,7 +391,11 @@ requests==2.34.2
     #   msal
     #   pydruid
     #   pyiceberg
+    #   requests-negotiate-sspi
+    #   tm1py
     #   trino
+requests-negotiate-sspi==0.5.2 ; sys_platform == 'win32'
+    # via tm1py
 rich==15.0.0
     # via pyiceberg
 scikit-learn==1.9.1
@@ -426,6 +446,8 @@ threadpoolctl==3.8.0
     # via scikit-learn
 thrift==0.25.0
     # via databricks-sql-connector
+tm1py==2.4.1
+    # via sfs-plugin-tm1 (plugins/sfs-plugin-tm1/pyproject.toml)
 tomlkit==0.15.2
     # via snowflake-connector-python
 toolz==1.2.0
