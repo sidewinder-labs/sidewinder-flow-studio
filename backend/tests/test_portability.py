@@ -146,15 +146,16 @@ def test_migration_encrypts_existing_plaintext_extras(env):
     eng = sa.create_engine(env.db_url)
     with eng.begin() as c:
         c.execute(sa.text("INSERT INTO connections (id, name, dialect, extra_params, created_at) VALUES "
-                          "('x', 'old', 'snowflake', :e, '2026-01-01')"), {"e": json.dumps({"warehouse": "WH", "private_key": "PK"})})
+                          "('x', 'old', 'snowflake', :e, '2026-01-01')"), {"e": json.dumps({"warehouse": "WH", "private_key": "my key!"})})
         assert cs.encrypt_plaintext_extras(c) == 1
         assert cs.encrypt_plaintext_extras(c) == 0                         # idempotent
         stored = c.execute(sa.text("SELECT extra_params FROM connections WHERE id='x'")).scalar()
-    assert "PK" not in stored and json.loads(stored)["warehouse"] == "WH"
+    assert "my key!" not in stored                                    # ' ' and '!' never occur in ciphertext
+    assert json.loads(stored)["warehouse"] == "WH"
 
     class Row:
         extra_params, password_enc = stored, None
-    assert cs.read_extras(Row()) == {"warehouse": "WH", "private_key": "PK"}
+    assert cs.read_extras(Row()) == {"warehouse": "WH", "private_key": "my key!"}
 
 
 def test_added_columns_reach_an_old_database(tmp_path):

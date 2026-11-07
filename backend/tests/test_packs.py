@@ -2,6 +2,7 @@
 tamper detection, compatibility, safe startup, safe mode, rollback, catalog
 replay protection, offline use, overriding a bundled plugin, and the API."""
 import base64
+import importlib.util
 import json
 import sys
 import zipfile
@@ -16,6 +17,10 @@ from app.core.config import settings
 from app.engine import registry
 from app.packs import catalog, keys, store, tools
 from app.packs.fmt import PackError, current_abi, current_platform
+
+# Build in the current env when it has setuptools (fast, offline); otherwise
+# (e.g. a bare CI Python) let pip fetch it into an isolated build env.
+ISOLATE = importlib.util.find_spec("setuptools") is None
 
 PLAT = current_platform()
 
@@ -74,7 +79,7 @@ def plugin_src(root: Path, *, pid="packtest", version="0.1.0", body=None, dep=Tr
 
 def build(env, src, *, sign=True, sfs="1.39", sfs_max=None):
     return tools.build(src, env["tmp"] / "dist", bundled_file=env["bundled"], platform=PLAT, sfs_version=sfs,
-                       sfs_max=sfs_max, key=env["pem"] if sign else None, kid="t1", build_isolation=False)
+                       sfs_max=sfs_max, key=env["pem"] if sign else None, kid="t1", build_isolation=ISOLATE)
 
 
 def api_factory(source):
@@ -294,7 +299,7 @@ def test_download_checks_the_checksum_and_installs(env, monkeypatch):
 def test_enterprise_pack_needs_a_licence_key(env, monkeypatch):
     z = tools.build(plugin_src(env["tmp"]), env["tmp"] / "dist", bundled_file=env["bundled"], platform=PLAT,
                     sfs_version="1.39", edition="enterprise", licence_feature="tm1_modeling", key=env["pem"], kid="t1",
-                    build_isolation=False)
+                    build_isolation=ISOLATE)
     catalog.accept(signed(env, [z]))
     client, seen = mock_server(env, [z], require_licence=True)
     with pytest.raises(PackError, match="add your licence key first"):
