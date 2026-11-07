@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
-import { Play, Save, Plus, FolderOpen, ChevronDown, Square, RefreshCw, Compass, BookOpen, Trash2, RotateCcw, ArrowLeft, HelpCircle, Download, Upload, Pencil } from 'lucide-react'
+import { Play, Save, Plus, FolderOpen, ChevronDown, Square, RefreshCw, Compass, BookOpen, Trash2, RotateCcw, ArrowLeft, HelpCircle, Download, Upload, Pencil, Puzzle } from 'lucide-react'
 import { useStore } from '@/store'
 import { api, type FlowBundle, type TrashedProject } from '@/utils/api'
 import { bundleName, downloadJson, pickJson } from '@/utils/download'
 import { AboutDialog } from './AboutDialog'
 import { DeleteDialog } from './DeleteDialog'
 import { ImportDialog } from './ImportDialog'
+import { PluginsDialog } from '@/components/plugins/PluginsDialog'
 import { openHelp } from '@/components/help/HelpPanel'
 
 export function TopBar() {
@@ -21,6 +22,7 @@ export function TopBar() {
 
   const [showProjects, setShowProjects] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
+  const [showPlugins, setShowPlugins] = useState(false)
   const [newName, setNewName] = useState('')
   // Per-flow inline rename state: flowId → editing name
   const [editingFlowId, setEditingFlowId] = useState<string | null>(null)
@@ -187,6 +189,7 @@ export function TopBar() {
       </div>
 
       {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
+      {showPlugins && <PluginsDialog onClose={() => setShowPlugins(false)} />}
       {deleting && (
         <DeleteDialog
           {...deleting}
@@ -424,6 +427,9 @@ export function TopBar() {
 
       {/* Right actions */}
       <div className="flex items-center gap-2 ml-auto shrink-0">
+        <button className="btn-ghost" onClick={() => setShowPlugins(true)} title="Plugins: install, update, licence">
+          <Puzzle size={15} />
+        </button>
         <button className="btn-ghost" onClick={() => openHelp()} title="Help: functions, engines, examples (F1)">
           <HelpCircle size={15} />
         </button>

@@ -30,6 +30,17 @@ Two levels of isolation are supported:
 The registration contract below is the same for both; only the `run`
 implementation differs.
 
+**How plugins reach users.** Plugins written against this contract reach SFS
+in three ways:
+
+| Way | For | How |
+|---|---|---|
+| Bundled | curve fitting, TM1, Power BI | built into the desktop app and the Docker images |
+| **Official packs** | anything in the Sidewinder Labs catalog | **Plugins** menu (puzzle icon): install, update, roll back, no rebuild — see [Official plugin packs](#official-plugin-packs) |
+| Custom image | your own or third-party plugins, server edition only | a Docker image built with your package installed — see [Custom plugins on the server](#custom-plugins-on-the-server) |
+
+The desktop app loads only bundled plugins and signed official packs.
+
 ---
 
 ## A complete working example
@@ -139,7 +150,8 @@ params=(
 
 `column` renders a dropdown of the upstream frame's actual columns once that
 node has run, and degrades to a text input before then. `connection` lists the
-user's configured connections.
+user's configured SQL connections; add `"dialects": ["tm1"]` to list only
+connections of your own connection type instead (see below).
 
 Params are **optional and additive** — declare none and your engine behaves
 exactly as before, a plain code cell. Declaring them doesn't remove the code
@@ -373,10 +385,194 @@ Write the docstring in that layout (a one-line summary, then `Args:`,
 must be public identifiers, and a built-in helper of the same name wins.
 Guard the call with `hasattr(api, "register_helper")` to support SFS before 1.35.
 
+## Connection types (optional)
+
+Parameters live in the flow file: plain text, and part of every export. A
+plugin that needs credentials for a system that isn't a SQL database (a
+planning server, a BI service, an API) registers a **connection type**
+instead. Its connections are created in **Meta → Connections** like any other,
+kept in SFS's connection store, and their `secret` fields are encrypted with
+the same key as database passwords.
+
+```python
+def register(api):
+    api.register_connection_type(
+        dialect="tm1", label="IBM Planning Analytics (TM1)",
+        description="Shown above the fields in the connection editor.",
+        fields=[
+            {"key": "address",  "label": "Server address", "type": "string", "required": True},
+            {"key": "port",     "label": "HTTP port",      "type": "number"},
+            {"key": "ssl",      "label": "Use SSL",        "type": "boolean", "default": True},
+            {"key": "auth",     "label": "Authentication", "type": "select", "default": "basic",
+             "options": [{"value": "basic", "label": "TM1 security"}, {"value": "cam", "label": "CAM"}]},
+            {"key": "password", "label": "Password",       "type": "secret"},
+            {"key": "namespace", "label": "CAM namespace", "type": "string",
+             "show_when": {"auth": ["cam"]}},
+        ],
+        test=test_fn,   # (fields) -> (ok: bool, message: str); backs the Test button
+    )
+    api.register_engine(api.EngineSpec(
+        name="tm1_read", ..., run=run_read,
+        params=({"key": "connection", "label": "Connection", "type": "connection",
+                 "dialects": ["tm1"], "required": True}, ...)))
+
+
+def run_read(ec):
+    fields = API.get_connection(ec.params["connection"], "tm1")   # keep `api` from register()
+    # {"name": "plan", "dialect": "tm1", "address": ..., "port": 8010, "ssl": True, "password": "…"}
+```
+
+| Field | Meaning |
+|---|---|
+| `dialect` | Lower-case id stored with each connection. Permanent: never rename it. |
+| field `type` | `string`, `number`, `boolean`, `select` or **`secret`**. |
+| `default`, `required`, `options`, `help` | As for engine params. |
+| `show_when` | `{"other_key": [values]}`: show the field only when another field has one of these values (e.g. per authentication mode). |
+
+- **Secrets**: a `secret` field's value is encrypted at rest, never sent back to
+  the browser (the editor shows *stored: leave blank to keep*), and left out of
+  *Export connections*. An imported connection is marked *needs credentials*
+  until the user enters it. Option names that look secret (`token`, `key`,
+  `password`…) are treated the same way even if declared `string`.
+- **`api.get_connection(name, dialect)`** returns the fields with secrets
+  decrypted and defaults applied, read when your node runs. It raises
+  `ValueError` with a message for the node when the connection doesn't exist,
+  is of another dialect, or still lacks credentials, so a broken connection
+  fails only the nodes that use it.
+- **Test**: your `test(fields)` runs in a worker thread; return `(True, "Connected
+  to …")` or `(False, reason)`, or raise: the exception text is shown.
+- These connections are not SQL databases: Explore doesn't list them, and
+  `get_engine()` on one says so.
+- `api.data_dir()` is the folder SFS keeps its data in, for plugin state such
+  as backups (use a subfolder named after your plugin).
+
+Real examples: `plugins/sfs-plugin-tm1` and `plugins/sfs-plugin-powerbi`.
+
+---
+
+## Official plugin packs
+
+The **Plugins** menu installs plugins from the Sidewinder Labs catalog, on the
+desktop app (which has no pip) and on Docker (without rebuilding the image).
+Only packs signed by Sidewinder Labs install; they are offered only in versions
+built and tested for the running SFS version and platform.
+
+### Pack format
+
+A pack is a zip:
+
+```
+manifest.json    {"id", "name", "version", "edition": "community"|"enterprise", "description",
+                  "sfs_min", "sfs_max", "platform", "python_abi", "register": "module:function",
+                  "dependencies": [{"name", "version"}], "sha256", "licence_feature"?}
+signature.json   {"kid", "signature"}: Ed25519 over the exact bytes of manifest.json
+site/            the plugin package and its own dependencies, importable as-is
+```
+
+- `sha256` hashes every file under `site/` (relative path and content, sorted),
+  so the signature covers the whole pack.
+- `platform` is the app flavour and the OS: `desktop-windows-x64`,
+  `desktop-linux-x64`, `server-linux-x64`, `server-linux-arm64`,
+  `desktop-macos-arm64`. The desktop app and the Docker image bundle different
+  libraries, so each gets its own build.
+- `python_abi` is the app's exact Python, e.g. `cp313`.
+- `id` is the plugin's `sfs.plugins` entry point name. A pack with the id of a
+  bundled plugin and a newer version replaces it; first runs stay offline with
+  the bundled one.
+
+**The rule that prevents breakage: a pack never contains a distribution the
+app provides** (NumPy, pandas, PyArrow…), it uses the app's. Each app build
+exports what it provides (`python -m app.packs.tools bundled`: the Docker image
+keeps it at `/opt/sfs-lock/bundled-distributions.json`, desktop releases attach
+`bundled-distributions-<platform>.json`). The pack builder resolves the
+plugin's dependencies pinned to those versions, leaves out everything the app
+has, and refuses a pack that still contains one; SFS refuses such a pack at
+install too.
+
+Server packs are built against the default image (`SFS_EXTRAS=all-connectors,pushdown`).
+On an image built with fewer extras a pack may miss a library: it then shows as
+failed in the Plugins menu, with the import error, and SFS keeps running.
+
+### Trust and safe startup
+
+- Signatures are verified **before install and at every start**: a pack whose
+  files changed on disk is disabled with that reason.
+- The catalog is signed too and carries `generated_at`; SFS refuses a catalog
+  older than the newest it has seen, so an old one can't be replayed to offer
+  withdrawn versions. The last good catalog is cached: the menu works offline,
+  and installed plugins never need the network.
+- Installed at `<data folder>/plugins/<id>/<version>/`; the previous version is
+  kept, so **Roll back** is immediate.
+- **A plugin that fails to load is disabled, not fatal**: SFS starts and the
+  Plugins menu shows it as failed, with the error. If SFS dies while a plugin
+  loads, that plugin is disabled at the next start.
+- **Safe mode** loads no plugins at all (bundled ones included): *Plugins → Next
+  start: safe mode*, `SFS_SAFE_MODE=1` (Docker), or starting the desktop app with
+  `--safe-mode`.
+- After an app update, each installed pack is re-checked: one that doesn't
+  support the new version is disabled with a notice, and **Updates** offers a
+  compatible version when the catalog has one.
+- Enterprise packs download only with a valid licence (the catalog checks it),
+  and check it again when they register.
+- Changes apply at the next start. On Docker and the desktop app, **Restart
+  now** restarts the backend.
+
+### Building, signing and publishing
+
+`.github/workflows/plugin-packs.yml` (and its twin in `sfs-enterprise`):
+
+1. For each target, install the released app's environment from its lock,
+   export what it provides, build each plugin's pack against it, and run the
+   plugin's tests with the pack first on the path, in that environment.
+2. Only if every build passes, in the GitHub environment `plugin-signing`
+   (required reviewer): sign the packs, merge them into the catalog, sign the
+   catalog, and upload both to the R2 bucket the catalog Worker serves
+   (`catalog/worker`).
+
+By hand: `python -m app.packs.tools build|sign|catalog|bundled` (run from
+`backend/`; `--help` on each).
+
+**The plugin-signing key** is separate from the licence key. Its private half
+lives only in the `plugin-signing` environment secret `PLUGIN_SIGNING_KEY`
+(key id in the variable `PLUGIN_SIGNING_KID`); its public half is in
+`app/packs/keys.py`. Generate with `python -m app.packs.tools keygen --out
+<file>`, paste the private key into the secret, then delete the file and keep
+an offline backup. To rotate: add the new public key to `keys.py` under a new
+id, release, switch the secret and variable, re-sign; remove the old key once
+no supported release needs it (immediately, if it leaked).
+
+---
+
+## Custom plugins on the server
+
+Plugins of your own, or from third parties, aren't in the catalog. On the
+server edition, build an image with them installed. In `.env`:
+
+```ini
+SFS_PLUGINS=curvefit,tm1,powerbi,mine     # folders plugins/sfs-plugin-<name> in your checkout
+```
+
+then `docker compose build --no-cache backend && docker compose up -d`. Or
+derive from the SFS image:
+
+```dockerfile
+FROM flow-studio-backend:latest
+USER root
+COPY my-plugin/ /opt/my-plugin/
+RUN pip install --no-cache-dir -c /opt/sfs-lock/requirements.lock /opt/my-plugin
+USER flowstudio
+```
+
+Installing with `-c /opt/sfs-lock/requirements.lock` keeps the app's library
+versions; a plugin whose dependencies conflict with them fails the build
+instead of breaking SFS. The desktop app doesn't load custom plugins.
+
+---
+
 ## Discovering what's installed
 
 `GET /api/capabilities` returns registered engines (with `source`, `tier` and
-availability), registered templates and examples, and the load status of every discovered
+availability), connection types, registered templates and examples, and the load status of every discovered
 plugin. The frontend
 renders the engine picker from this, so a newly installed plugin appears in the
 UI with no frontend change. Engines whose `requires` are missing appear greyed

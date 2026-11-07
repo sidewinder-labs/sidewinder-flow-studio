@@ -1,0 +1,15 @@
+# The plugin catalog Worker. Not deployed yet: see ../README.md for the
+# one-time setup (R2 bucket, route, keys) before `npx wrangler deploy`.
+name = "sfs-plugin-catalog"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[[r2_buckets]]
+binding = "PACKS"
+bucket_name = "sfs-plugin-packs"
+
+[vars]
+# Licence public keys by key id: the same as PUBLIC_KEYS in sfs-enterprise's licensing.py
+LICENCE_PUBLIC_KEYS = '{"2026-11": "u7jA3U5SFPRetewp/OAqcvabwIQ6qm0sV0uhb9h3f5k="}'
+
+# routes = [{ pattern = "plugins.sidewinderlabs.dev", custom_domain = true }]

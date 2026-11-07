@@ -86,6 +86,35 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   return res.json()
 }
 
+/** A kind of connection a plugin adds (TM1, Power BI…), rendered from its fields. */
+export interface ConnectionType {
+  dialect: string
+  label: string
+  description?: string
+  source: string
+  testable: boolean
+  fields: { key: string; label?: string; type?: 'string' | 'number' | 'boolean' | 'select' | 'secret';
+            default?: unknown; required?: boolean; help?: string; options?: (string | { value: string; label?: string })[]
+            /** Show only when another field has one of these values, e.g. {auth: ['basic', 'cam']} */
+            show_when?: Record<string, string[]> }[]
+}
+
+// ── Plugins menu ─────────────────────────────────────────────────────────────
+
+export interface PluginOffer { id: string; name?: string; description?: string; edition?: 'community' | 'enterprise'
+  licence_feature?: string; versions: string[]; installed?: string }
+export interface InstalledPack { id: string; name?: string; version: string; edition?: string; description?: string
+  enabled: boolean; error?: string | null; notice?: string | null; previous?: string | null; loaded: boolean }
+export interface PluginsView {
+  sfs_version: string; platform: string; python_abi: string; install: string
+  safe_mode: boolean; restart_needed: string[]; can_restart: boolean
+  bundled: { id: string; version?: string; loaded?: boolean; error?: string | null }[]
+  installed: InstalledPack[]; available: PluginOffer[]; updates: PluginOffer[]
+  catalog: { url: string; generated_at?: string | null; error?: string | null }
+  licence: { licensee?: string; expires?: string | null; features?: string[]; evaluation?: boolean
+             verified?: boolean; expired?: boolean; error?: string } | null
+}
+
 // ── Export / import ──────────────────────────────────────────────────────────
 
 export interface FlowBundle {
@@ -131,6 +160,25 @@ export interface ConnectionImportResult {
 }
 
 export const api = {
+  plugins: {
+    get: () => req<PluginsView>('/plugins/'),
+    refresh: () => req<PluginsView>('/plugins/catalog/refresh', { method: 'POST' }),
+    install: (id: string, version?: string) =>
+      req<PluginsView>('/plugins/install', { method: 'POST', body: JSON.stringify({ id, version }) }),
+    upload: async (file: File) => {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await fetch(`${BASE}/plugins/upload`, { method: 'POST', body: fd })
+      if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`)
+      return r.json() as Promise<PluginsView>
+    },
+    act: (id: string, action: 'enable' | 'disable' | 'rollback' | 'remove') =>
+      req<PluginsView>(`/plugins/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
+    safeMode: (on: boolean) => req<PluginsView>('/plugins/safe-mode', { method: 'PUT', body: JSON.stringify({ on }) }),
+    licence: (text: string) => req<PluginsView>('/plugins/licence', { method: 'PUT', body: JSON.stringify({ text }) }),
+    removeLicence: () => req<PluginsView>('/plugins/licence', { method: 'DELETE' }),
+    restart: () => req<{ restarting: boolean }>('/plugins/restart', { method: 'POST' }),
+  },
+
   diagnostics: () => req<{ install: 'docker' | 'desktop' | 'source'; version: string; text: string }>('/diagnostics/'),
 
   projects: {
@@ -243,6 +291,7 @@ export const api = {
     plugins: { name: string; loaded: boolean; error?: string }[]
     templates?: { kind: string; name: string; code: string; description: string; source: string }[]
     examples?: { name: string; description: string; source: string }[]
+    connection_types?: ConnectionType[]
     helpers?: HelperDoc[]
     snippets?: Snippet[]
     features: Record<string, boolean>

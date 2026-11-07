@@ -32,8 +32,8 @@ jobs:
           cache-dependency-path: locks/requirements.lock
 
       # The versions the Docker images and the desktop app ship (locks/requirements.lock)
-      - name: Install the backend and the curve-fitting plugin
-        run: python -m pip install -c locks/requirements.lock "./backend[dev,pushdown,fastread]" ./plugins/sfs-plugin-curvefit
+      - name: Install the backend and the bundled plugins
+        run: python -m pip install -c locks/requirements.lock "./backend[dev,pushdown,fastread]" ./plugins/sfs-plugin-curvefit ./plugins/sfs-plugin-tm1 ./plugins/sfs-plugin-powerbi
 
       - name: Installed packages match the lock
         run: python scripts/check_lock.py
@@ -50,9 +50,9 @@ jobs:
         working-directory: backend
         run: python -m pytest -q
 
-      - name: Curve-fitting plugin tests
-        working-directory: plugins/sfs-plugin-curvefit
-        run: python -m pytest -q
+      - name: Plugin tests (curve fitting, TM1, Power BI)
+        run: |
+          for p in curvefit tm1 powerbi; do (cd plugins/sfs-plugin-$p && python -m pytest -q) || exit 1; done
 
   frontend:
     name: Frontend (typecheck and build)
@@ -77,3 +77,6 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+      - name: Plugin catalog Worker
+        run: node catalog/worker/test.mjs

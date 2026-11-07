@@ -14,8 +14,9 @@ to Sidewinder Flow Studio. Use it as a template for your own engine.
 
 ## Install
 
-In Docker, list it in `SFS_PLUGINS` in `.env` (copied from `.env.docker`) and
-rebuild the backend image (the desktop app doesn't include it):
+When it is in the official catalog, install it from the **Plugins** menu. To
+build it into a Docker image, list it in `SFS_PLUGINS` in `.env` (copied from
+`.env.docker`) and rebuild the backend image:
 
 ```bash
 SFS_PLUGINS=curvefit,sklearn

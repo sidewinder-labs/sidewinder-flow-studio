@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir -c /opt/sfs-lock/requirements.lock ".${SFS_EXTRAS
 
 # Plugins from plugins/, by short name (sfs-plugin-<name>), comma-separated.
 # Override with --build-arg SFS_PLUGINS=curvefit,sklearn (or SFS_PLUGINS= for none).
-ARG SFS_PLUGINS=curvefit
+ARG SFS_PLUGINS=curvefit,tm1,powerbi
 COPY plugins/ /opt/sfs-plugins/
 RUN for p in $(echo "$SFS_PLUGINS" | tr ',' ' '); do \
       pip install --no-cache-dir -c /opt/sfs-lock/requirements.lock "/opt/sfs-plugins/sfs-plugin-$p" || exit 1; \
@@ -47,6 +47,9 @@ RUN for p in $(echo "$SFS_PLUGINS" | tr ',' ' '); do \
 
 # Fail the build if anything installed differs from the lock.
 RUN python /opt/sfs-lock/check_lock.py /opt/sfs-lock/requirements.lock
+
+# What this image provides, so plugin packs never ship a second copy of it
+RUN python -m app.packs.tools bundled --out /opt/sfs-lock/bundled-distributions.json
 
 # One-line summary of installed connector drivers / pushdown engines.
 RUN python scripts/driver_summary.py
@@ -65,6 +68,7 @@ EXPOSE 8000
 ENV HOST=0.0.0.0 \
     PORT=8000 \
     SFS_INSTALL=docker \
+    SFS_BUNDLED_DISTRIBUTIONS=/opt/sfs-lock/bundled-distributions.json \
     DEBUG=false \
     PROJECTS_DIR=/data/projects \
     FRAME_CACHE_DIR=/data/frame_cache \

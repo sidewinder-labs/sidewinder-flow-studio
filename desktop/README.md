@@ -110,7 +110,7 @@ environment (a clean one keeps the bundle small).
 cd frontend && npm install && npm run build && cd ..
 
 # 2. the backend sidecar (dist/sfs-backend/)
-python -m pip install "./backend[pushdown,fastread,clickhouse,mysql,oracle,trino,mssql]" ./plugins/sfs-plugin-curvefit pyinstaller
+python -m pip install -c locks/requirements.lock "./backend[pushdown,fastread,clickhouse,mysql,oracle,trino,mssql]" ./plugins/sfs-plugin-curvefit ./plugins/sfs-plugin-tm1 ./plugins/sfs-plugin-powerbi pyinstaller
 cd desktop/sidecar && pyinstaller --noconfirm sfs-backend.spec && cd ../..
 
 # 3. check it, then build the app and installers (AppImage, .deb) in
@@ -120,7 +120,7 @@ cd desktop && npm install && npx tauri build
 ```
 
 Plugins bundled in-process are listed in `SFS_DESKTOP_PLUGINS` (default
-`curvefit`), like `SFS_PLUGINS` for Docker. For a quick development loop, build
+`curvefit,tm1,powerbi`), like `SFS_PLUGINS` for Docker. For a quick development loop, build
 the shell with `cargo build` in `src-tauri/` and point it at the sidecar with
 `SFS_BACKEND=$PWD/sidecar/dist/sfs-backend/sfs-backend`.
 

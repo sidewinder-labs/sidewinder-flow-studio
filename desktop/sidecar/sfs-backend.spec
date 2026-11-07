@@ -18,9 +18,14 @@ if not (FRONTEND_DIST / "index.html").exists():
     raise SystemExit("Build the frontend first: cd frontend && npm run build")
 
 # Plugins bundled in-process, by short name (sfs-plugin-<name>): mirrors SFS_PLUGINS.
-PLUGINS = [p for p in os.environ.get("SFS_DESKTOP_PLUGINS", "curvefit").split(",") if p]
+PLUGINS = [p for p in os.environ.get("SFS_DESKTOP_PLUGINS", "curvefit,tm1,powerbi").split(",") if p]
 
 datas = [(str(FRONTEND_DIST), "static")]
+# What the app provides (app.packs.store reads it: a frozen app has no metadata
+# for most libraries). Written by CI: python -m app.packs.tools bundled.
+_bundled = Path(SPECPATH) / "bundled-distributions.json"
+if _bundled.exists():
+    datas.append((str(_bundled), "."))
 binaries = []
 hiddenimports = []
 
@@ -86,8 +91,10 @@ for short in PLUGINS:
     hiddenimports += collect_submodules(module)
     datas += collect_data_files(module, include_py_files=True)
     datas += copy_metadata(dist)
-for pkg in ("lmfit", "uncertainties", "sympy"):
+for pkg in ("lmfit", "uncertainties", "sympy", "TM1py", "mdxpy", "msal"):
     hiddenimports += collect_submodules(pkg, filter=lambda m: ".tests" not in m)
+if sys.platform == "win32":
+    hiddenimports += ["requests_negotiate_sspi"]       # TM1 Windows integrated login
 
 a = Analysis(
     ["entry.py"],

@@ -92,6 +92,14 @@ These are the complete, genuinely useful free product. Nothing here is crippled.
   exchanging Arrow files, so heavy/conflicting dependencies never enter the core
   environment (`app/engine/runtime.py`); reference implementation in
   `plugins/sfs-plugin-sklearn`
+- ✅ **Plugin connection types** — plugins add kinds of connection (fields,
+  encrypted `secret` fields, a Test button) to Meta → Connections
+- ✅ **Plugins menu and official catalog** — signed plugin packs installed on the
+  desktop app and Docker without a rebuild; safe startup, safe mode, roll back
+- ✅ **IBM Planning Analytics (TM1)** — `sfs-plugin-tm1`: TM1 read (MDX, views),
+  TM1 load (replace slice, add, overwrite, bulk, dry run); v11 and v12
+- ✅ **Power BI refresh** — `sfs-plugin-powerbi`: enhanced refresh of models,
+  tables and partitions, waiting on refreshes in progress
 
 ### Productivity
 - ✅ Shared functions / imports preamble (flow-level)
@@ -136,7 +144,9 @@ Rows marked *Core (open)* are open-core work that enterprise builds on.
 | Capability | Status | Edition | Notes |
 |---|---|---|---|
 | **Engine-registry + plugin loader** (entry-points; `/api/capabilities`) | ✅ | Core (open) | DONE — `app/engine/registry.py`, contract in docs/PLUGINS.md. |
-| **Licensing** — Ed25519 offline-signed keys, seat/expiry/features | ⬜ | Enterprise | Verifies offline; perpetual = `expires:null`. |
+| **Licensing** — Ed25519 offline-signed keys, expiry/features, evaluation licences | ✅ | Enterprise | `sfs-enterprise`; verifies offline; perpetual = `expires:null`; unlicensed engines register as placeholders. Seats not enforced (offline). |
+| **TM1 modeling** — dimension builder, rules and feeders as versioned text, TurboIntegrator | ✅ | Enterprise | `sfs-plugin-tm1-modeling` in `sfs-enterprise`. |
+| **Power BI operations** — multi-model orchestration, refresh history | ✅ | Enterprise | `sfs-plugin-powerbi-ops`; partition management over XMLA evaluated, not built. |
 | **Auth — local** (argon2 + JWT), login, WS token validation | ⬜ | Enterprise | Auth interface with a no-op default in open core; implementation in the plugin. |
 | **Auth — SSO/OIDC** (Azure AD etc.) | ⬜ | Enterprise | The #1 enterprise procurement ask. |
 | **RBAC** (viewer/editor/admin; viewers see reports only) | ⬜ | Enterprise | Pairs with reports. |
@@ -145,7 +155,7 @@ Rows marked *Core (open)* are open-core work that enterprise builds on.
 | **Vector/MCP semantic catalog** — profile tables + DAG lineage → catalog → expose as MCP server for AI tools | ⬜ | Enterprise | Flagship AI-native differentiator. |
 | **Pushdown-aware profiling** — compute stats in-database, return only the stats | ⬜ | Enterprise | Pairs with catalog + pushdown engines. |
 | **Ibis `create_table` in-DB materialization** — write back same DB with zero round-trip | ⬜ | Core (open) | Small addition to the Ibis engine. |
-| **Power BI semantic model read** (XMLA/TMDL/DAX) | ⬜ | Enterprise | Read feasible; writing cautioned (governance). |
+| **Power BI partition management** (XMLA/TMDL) | ⬜ | Enterprise | See `sfs-enterprise/XMLA_EVALUATION.md`: list via Fabric getDefinition, change via a TOM CLI. |
 | **StarRocks Stream Load / MySQL LOAD DATA** — best-tier bulk paths | ⬜ | Core (open) | Optimizes the existing `fast_write` dispatcher. |
 | **`fast_read`** (ConnectorX Arrow-native fast source reads) | ⬜ | Core (open) | Symmetric to fast_write. |
 | **Resume from failed node** — scheduled retries re-run only what failed | ⬜ | Core (open) | Today a retry re-runs the whole flow; writes must be idempotent. |

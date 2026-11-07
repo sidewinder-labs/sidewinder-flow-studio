@@ -145,6 +145,11 @@ fn start_backend(app: &AppHandle) -> Result<(), String> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::from(log.try_clone().map_err(|e| e.to_string())?));
+    // `--safe-mode` on the app's command line: start with no plugins (e.g. a
+    // shortcut "Sidewinder Flow Studio --safe-mode" when a plugin misbehaves).
+    if std::env::args().any(|a| a == "--safe-mode") {
+        command.env("SFS_SAFE_MODE", "1");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

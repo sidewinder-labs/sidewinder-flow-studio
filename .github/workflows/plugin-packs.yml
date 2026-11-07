@@ -1,0 +1,124 @@
+# Official plugin packs: build, test, sign, publish to the catalog.
+#
+#   Actions → Plugin packs → Run workflow (sfs: the app version to build for).
+#
+# 1. build   — per target (desktop-windows-x64, desktop-linux-x64,
+#              server-linux-x64): install that app's environment from the
+#              lock at the release tag, export what it provides, build each
+#              plugin's pack against it (nothing the app provides goes in),
+#              then run the plugin's tests with the pack's site/ first on the
+#              path, inside that environment. Unsigned packs are uploaded.
+# 2. publish — only after every build passed, in the `plugin-signing`
+#              environment, which needs a reviewer's approval: sign the packs,
+#              merge them into the catalog, sign it, and upload both to R2.
+#
+# Secrets (environment `plugin-signing` only):
+#   PLUGIN_SIGNING_KEY   the Ed25519 private key (PEM), key id in vars.PLUGIN_SIGNING_KID
+#   CLOUDFLARE_API_TOKEN R2 write access to the bucket; CLOUDFLARE_ACCOUNT_ID as a variable
+# Enterprise packs are built the same way by the workflow in sfs-enterprise.
+name: Plugin packs
+
+on:
+  workflow_dispatch:
+    inputs:
+      sfs:
+        description: "SFS version the packs are for (a v<version> tag must exist)"
+        required: true
+      plugins:
+        description: "Plugins, by short name"
+        default: "curvefit,tm1,powerbi"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: desktop-windows-x64, os: windows-2022, install: desktop,
+              extras: "pushdown,fastread,clickhouse,mysql,oracle,trino,mssql" }
+          - { target: desktop-linux-x64, os: ubuntu-22.04, install: desktop,
+              extras: "pushdown,fastread,clickhouse,mysql,oracle,trino,mssql" }
+          - { target: server-linux-x64, os: ubuntu-latest, install: docker,
+              extras: "all-connectors,pushdown" }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ inputs.sfs }}                 # the app as released: its lock, its plugins
+          path: app
+      - uses: actions/checkout@v5                 # the plugins at their current version
+        with:
+          path: src
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: The app's environment, from its lock
+        shell: bash
+        run: |
+          python -m pip install -c app/locks/requirements.lock "./app/backend[${{ matrix.extras }}]" \
+            ./app/plugins/sfs-plugin-curvefit ./app/plugins/sfs-plugin-tm1 ./app/plugins/sfs-plugin-powerbi pytest
+          python app/scripts/check_lock.py app/locks/requirements.lock
+      - name: What the app provides
+        working-directory: app/backend
+        shell: bash
+        env:
+          SFS_INSTALL: ${{ matrix.install }}
+        run: python -m app.packs.tools bundled --out "$GITHUB_WORKSPACE/bundled.json" --sfs "${{ inputs.sfs }}" --platform "${{ matrix.target }}"
+      - name: Build the packs
+        working-directory: app/backend
+        shell: bash
+        run: |
+          for p in $(echo "${{ inputs.plugins }}" | tr ',' ' '); do
+            python -m app.packs.tools build "$GITHUB_WORKSPACE/src/plugins/sfs-plugin-$p" --bundled "$GITHUB_WORKSPACE/bundled.json" \
+              --platform "${{ matrix.target }}" --sfs "${{ inputs.sfs }}" --out "$GITHUB_WORKSPACE/dist" || exit 1
+          done
+      - name: Each plugin's tests, with its pack first on the path
+        shell: bash
+        run: |
+          for z in dist/*/*/*.zip; do
+            id=$(python -c "import json,zipfile,sys;print(json.loads(zipfile.ZipFile(sys.argv[1]).read('manifest.json'))['register'].split('.')[0].removeprefix('sfs_plugin_'))" "$z")
+            rm -rf unpacked && mkdir unpacked && python -m zipfile -e "$z" unpacked
+            (cd "src/plugins/sfs-plugin-$id" && PYTHONPATH="$GITHUB_WORKSPACE/unpacked/site" python -m pytest -q) || exit 1
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packs-${{ matrix.target }}
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: plugin-signing                  # requires approval; holds the key
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -c locks/requirements.lock ./backend
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: packs-*
+          path: dist
+          merge-multiple: true
+      - name: Sign the packs and the catalog
+        working-directory: backend
+        env:
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          umask 077 && printf '%s\n' "$PLUGIN_SIGNING_KEY" > "$RUNNER_TEMP/key.pem"
+          packs=$(find ../dist -name '*.zip')
+          python -m app.packs.tools sign $packs --key "$RUNNER_TEMP/key.pem" --kid "${{ vars.PLUGIN_SIGNING_KID }}"
+          npx --yes wrangler@4 r2 object get sfs-plugin-packs/catalog.json --remote --file "$RUNNER_TEMP/previous.json" || echo "no catalog yet"
+          python -m app.packs.tools catalog $packs --previous "$RUNNER_TEMP/previous.json" \
+            --key "$RUNNER_TEMP/key.pem" --kid "${{ vars.PLUGIN_SIGNING_KID }}" --out "$RUNNER_TEMP/catalog.json"
+          rm -f "$RUNNER_TEMP/key.pem"
+          for z in $packs; do
+            npx --yes wrangler@4 r2 object put "sfs-plugin-packs/packs/${z#../dist/}" --remote --file "$z" --content-type application/zip
+          done
+          npx --yes wrangler@4 r2 object put sfs-plugin-packs/catalog.json --remote --file "$RUNNER_TEMP/catalog.json" --content-type application/json

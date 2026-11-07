@@ -214,7 +214,9 @@ express upserts through pandas.
 2. Never `import pandas/sqlalchemy` (injected); import stdlib freely.
 3. Always leave the result in `df` (or `result` for chart nodes).
 4. Use ONLY columns that exist upstream; don't invent schema.
-5. Connection names must match configured Connections exactly.
+5. Connection names must match configured Connections exactly. TM1 and Power BI
+   connections (plugin connection types) aren't SQL databases: use the TM1 and
+   Power BI nodes, not `get_engine()`; no helper exposes their secrets to node code.
 6. Docker note: file paths must be visible to the backend container
    (volume-mounted); `host.docker.internal` reaches the host on Linux via
    compose extra_hosts.

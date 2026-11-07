@@ -105,9 +105,16 @@ jobs:
           cache-dependency-path: locks/requirements.lock
       # Versions from the lock, so a rebuild months later ships the same libraries
       - name: Install the backend, bundled plugins and PyInstaller
-        run: python -m pip install -c locks/requirements.lock "./backend[pushdown,fastread,clickhouse,mysql,oracle,trino,mssql]" ./plugins/sfs-plugin-curvefit pyinstaller pytest
+        run: python -m pip install -c locks/requirements.lock "./backend[pushdown,fastread,clickhouse,mysql,oracle,trino,mssql]" ./plugins/sfs-plugin-curvefit ./plugins/sfs-plugin-tm1 ./plugins/sfs-plugin-powerbi pyinstaller pytest
       - name: Installed packages match the lock
         run: python scripts/check_lock.py
+      # The list plugin packs are built against: nothing in it may ship in a pack
+      - name: Export the bundled distributions
+        working-directory: backend
+        shell: bash
+        env:
+          SFS_INSTALL: desktop
+        run: python -m app.packs.tools bundled --out ../desktop/sidecar/bundled-distributions.json
       - name: Windows signing tool
         if: runner.os == 'Windows' && env.WIN_SIGNING == 'true'
         run: cargo install trusted-signing-cli --locked
@@ -197,6 +204,9 @@ jobs:
           for f in ${{ matrix.bundles }} desktop/src-tauri/target/release/bundle/*/*.sig; do
             cp "$f" "out/$(basename "$f" | tr ' ' '-')"
           done
+          # what plugin packs for this platform are built against (plugin-packs.yml reads it)
+          plat=$(python -c "import json;print(json.load(open('desktop/sidecar/bundled-distributions.json'))['platform'])")
+          cp desktop/sidecar/bundled-distributions.json "out/bundled-distributions-$plat.json"
           ls -l out
 
       # ── publish ──

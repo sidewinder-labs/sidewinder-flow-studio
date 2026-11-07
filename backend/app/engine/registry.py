@@ -128,6 +128,7 @@ class EngineSpec:
 
 
 ENGINES: dict[str, EngineSpec] = {}
+APP_VERSION = "0"                    # set by create_app(); plugin packs are checked against it
 _PLUGINS_LOADED = False
 _LOADED_PLUGINS: list[dict] = []
 
@@ -225,6 +226,54 @@ def register_helper(*, name: str, func: Callable, category: str = "Plugins",
     log.info("Registered helper '%s' (%s)", name, source)
 
 
+# ── Connection types ──────────────────────────────────────────────────────────
+# A plugin whose engines talk to a non-SQL system (TM1, Power BI…) registers a
+# connection type: its fields render in Meta → Connections, values live in the
+# encrypted connection store (never in flow JSON), and `secret` fields are
+# encrypted at rest, never returned to the browser, and left out of exports.
+
+CONNECTION_FIELD_TYPES = ("string", "number", "boolean", "select", "secret")
+CONNECTION_TYPES: dict[str, dict] = {}
+
+
+def register_connection_type(*, dialect: str, label: str, fields: list[dict],
+                             test: Callable | None = None, description: str = "",
+                             source: str = "builtin") -> None:
+    if not dialect or not dialect.replace("_", "").isalnum() or dialect != dialect.lower():
+        raise ValueError(f"Connection type '{dialect}': dialect must be lower-case letters, digits or _")
+    keys = set()
+    for f in fields:
+        if not f.get("key"):
+            raise ValueError(f"Connection type '{dialect}': every field needs a key")
+        if f.get("type", "string") not in CONNECTION_FIELD_TYPES:
+            raise ValueError(f"Connection type '{dialect}': field '{f['key']}' has unknown type "
+                             f"'{f.get('type')}'; use one of {', '.join(CONNECTION_FIELD_TYPES)}")
+        if f["key"] in keys:
+            raise ValueError(f"Connection type '{dialect}': duplicate field '{f['key']}'")
+        keys.add(f["key"])
+    if dialect in CONNECTION_TYPES:
+        log.warning("Connection type '%s' already registered — ignoring duplicate", dialect)
+        return
+    CONNECTION_TYPES[dialect] = {"dialect": dialect, "label": label, "description": description,
+                                 "fields": [dict(f) for f in fields], "test": test, "source": source}
+    log.info("Registered connection type '%s' (%s)", dialect, source)
+
+
+def connection_type(dialect: str | None) -> dict | None:
+    return CONNECTION_TYPES.get(dialect or "")
+
+
+def secret_fields(dialect: str | None) -> set[str]:
+    t = connection_type(dialect)
+    return {f["key"] for f in t["fields"] if f.get("type") == "secret"} if t else set()
+
+
+def list_connection_types() -> list[dict]:
+    """Serializable connection types for /api/capabilities (without the test function)."""
+    return [{k: v for k, v in t.items() if k != "test"} | {"testable": t["test"] is not None}
+            for t in CONNECTION_TYPES.values()]
+
+
 def list_engines() -> list[dict]:
     """Serializable engine list for /api/capabilities."""
     out = []
@@ -287,6 +336,31 @@ class RegistryAPI:
         register_helper(name=name, func=func, category=category, examples=examples,
                         source=self._source)
 
+    def register_connection_type(self, *, dialect: str, label: str, fields: list[dict],
+                                 test: Callable | None = None, description: str = "") -> None:
+        """Add a kind of connection, e.g. dialect="tm1". fields: [{key, label,
+        type, default?, required?, options?, help?}] with type one of string,
+        number, boolean, select, secret. test(fields) -> (ok, message) backs
+        the Test button. Engines read a connection with get_connection(name)."""
+        register_connection_type(dialect=dialect, label=label, fields=fields, test=test,
+                                 description=description, source=self._source)
+
+    @staticmethod
+    def get_connection(name: str, dialect: str | None = None) -> dict:
+        """A connection's fields, secrets decrypted, for use at run time:
+        {"name", "dialect", **fields}. Raises ValueError with a message for the
+        node when it doesn't exist, is of another dialect, or lacks credentials."""
+        from app.services.connection_service import plugin_connection
+        return plugin_connection(name, dialect)
+
+    @staticmethod
+    def data_dir():
+        """The folder SFS keeps its data in (projects' parent): for plugin
+        state such as backups. Create subfolders named after your plugin."""
+        from pathlib import Path
+        from app.core.config import settings
+        return Path(settings.PROJECTS_DIR).resolve().parent
+
     def register_template(self, *, kind: str, name: str, code: str, description: str = "") -> None:
         """Offer starting code for a node type (today: kind="chart")."""
         register_template(kind=kind, name=name, code=code, description=description,
@@ -294,9 +368,10 @@ class RegistryAPI:
 
 
 def load_plugins() -> list[dict]:
-    """Discover and initialise plugins declared under the `sfs.plugins` entry
-    point group. A failing plugin is logged and skipped — it must never take
-    the application down."""
+    """Discover and initialise plugins: signed packs installed from the catalog
+    (app/packs), then those declared under the `sfs.plugins` entry point
+    group. A failing plugin is logged and skipped: it must never take the
+    application down. In safe mode none load."""
     global _PLUGINS_LOADED
     if _PLUGINS_LOADED:
         return _LOADED_PLUGINS
@@ -307,15 +382,35 @@ def load_plugins() -> list[dict]:
     examples.register()
 
     try:
-        eps = metadata.entry_points(group=ENTRY_POINT_GROUP)
+        eps = list(metadata.entry_points(group=ENTRY_POINT_GROUP))
     except Exception as exc:                     # pragma: no cover
         log.warning("Could not read entry points: %s", exc)
+        eps = []
+
+    def version(ep):
+        return getattr(getattr(ep, "dist", None), "version", None)
+
+    from app.packs import store as packs
+    if packs.safe_mode():
+        log.warning("Safe mode: plugins are not loaded")
+        _LOADED_PLUGINS.extend({"name": ep.name, "value": ep.value, "loaded": False, "error": "safe mode",
+                                "version": version(ep)} for ep in eps)
         return _LOADED_PLUGINS
 
+    # A pack with a bundled plugin's id and a newer version loads instead of it.
+    try:
+        replaced = packs.load_all(lambda source: RegistryAPI(source=source), APP_VERSION,
+                                  {ep.name: version(ep) or "0" for ep in eps})
+    except Exception as exc:                     # the pack store itself must not stop startup
+        log.error("Plugin packs could not be loaded: %s", exc)
+        replaced = set()
+
     for ep in eps:
-        dist = getattr(ep, "dist", None)
-        info = {"name": ep.name, "value": ep.value, "loaded": False, "error": None,
-                "version": getattr(dist, "version", None)}
+        info = {"name": ep.name, "value": ep.value, "loaded": False, "error": None, "version": version(ep)}
+        if ep.name in replaced:
+            info["replaced_by_pack"] = True
+            _LOADED_PLUGINS.append(info)
+            continue
         try:
             hook = ep.load()
             hook(RegistryAPI(source=f"plugin:{ep.name}"))

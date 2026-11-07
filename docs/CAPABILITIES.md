@@ -327,6 +327,71 @@ df.to_parquet("abfs://container/out/result.parquet", storage_options=opts)
 
 ---
 
+## Plugins menu
+
+The **puzzle icon** in the top bar opens the Plugins menu:
+
+- **Installed**: bundled plugins and installed packs, with their status (running, disabled, failed with the error), and *Disable*, *Enable*, *Roll back* to the previous version, *Remove*.
+- **Available**: plugins from the official Sidewinder Labs catalog with a version for this SFS and platform. *Install*. Every pack is signed (badge *Official*) and checked before install and at every start.
+- **Updates**: newer versions for this SFS.
+- **Enterprise licence**: paste a licence key to install and use Enterprise plugins (badge *Enterprise*).
+- *From file* installs a signed pack without a connection (same checks); *Check* refreshes the catalog. Offline, the menu shows the last catalog it saw.
+- *Next start: safe mode* starts SFS without any plugin, if one stops it from working (also `SFS_SAFE_MODE=1`, or the desktop app with `--safe-mode`).
+
+Changes apply when SFS restarts: on Docker and the desktop app, *Restart now* does it. A plugin that fails to load is disabled and shown as failed; SFS always starts.
+
+---
+
+## IBM Planning Analytics (TM1)
+
+The **TM1** plugin (in the desktop app and the Docker images) reads cubes and loads data into them, through [TM1py](https://github.com/cubewise-code/tm1py).
+
+**Connection** — Meta → Connections → *IBM Planning Analytics (TM1)*. Pick the version and authentication, and the form shows what that mode needs:
+
+| Mode | For | Fields |
+|---|---|---|
+| v11 · TM1 security | Planning Analytics on premises, native security | address, HTTP port (`HTTPPortNumber` in tm1s.cfg), SSL, user, password |
+| v11 · CAM security | on premises with Cognos security | + CAM namespace |
+| v11 · Windows integrated login | on premises, the desktop app on Windows | address, port, SSL |
+| v12 · Planning Analytics as a Service | IBM's SaaS (AWS) | database URL, API key |
+| v12 · IBM Cloud | Planning Analytics on IBM Cloud | PA URL, tenant, database, IAM API key |
+| v12 · Engine on premises / Cloud Pak | Planning Analytics Engine | address, instance, database, application client ID and secret, user |
+
+**Test** signs in and shows the server name and version. Passwords, API keys and client secrets are encrypted and never leave the server.
+
+**TM1 read** — a source node: an **MDX** query, or a **cube view** (public or private). The output has one row per cell: a column per dimension, then `value`.
+
+**TM1 load** — writes its input into a cube. The input has a column per cube dimension (named like the dimension, or mapped: one `column = Dimension` per line) and a value column.
+
+- **Replace slice** (default) zeroes the slice the data covers (every combination of its distinct elements per dimension), then writes. Re-running a load gives the same numbers, so a retried or re-run flow is safe. Zeroing uses `ViewZeroOut` when the TM1 user is an admin; otherwise SFS reads the slice and writes zeros, which needs only write access.
+- **Add** increments the existing values; **Overwrite cells** writes only the given cells.
+- **Bulk mode** uses TM1py's blob upload for large volumes (needs an admin user).
+- **Unknown elements**: *Fail* (default) lists the elements a dimension doesn't have, per dimension; *Skip* writes the rest and reports what it skipped. Element names compare as TM1 does, ignoring case and spaces.
+- **Dry run** checks every element and reports, writing nothing.
+
+The output is one status row: cube, mode, cells written, cells skipped, duration, status and message. *Start from an example → TM1 · Load sales actuals into a cube* shows the whole path: CSV → one row per cell → TM1 load (starting as a dry run).
+
+---
+
+## Power BI refresh
+
+The **Power BI** plugin (in the desktop app and the Docker images) refreshes semantic models with the enhanced refresh API, so a flow can refresh exactly the tables and partitions it just loaded.
+
+**Connection** — Meta → Connections → *Power BI (service principal)*: tenant ID, client ID and client secret of an Entra ID app registration. In the Power BI admin portal, *Developer settings → Service principals can use Fabric APIs* must be enabled for it (or a security group it's in), and it must be a **Member** or **Admin** of each workspace it refreshes. No Entra API permissions are needed. **Test** signs in and counts the workspaces it can see.
+
+**Power BI refresh** node:
+- **Workspace** and **Semantic model** by name or id.
+- **Refresh type**: full, data only, calculate, clear values, automatic. **Commit mode**: transactional or partial batch. Max parallelism and Power BI's own retry count.
+- **Tables and partitions**: a list (`Table` or `Table/Partition`, one per line), or **from upstream columns**: e.g. a node listing the month partitions just loaded. Empty refreshes the whole model.
+- **A refresh already running** is waited for first (or fails, if you choose): Power BI queues one refresh and drops the rest, so firing blind loses requests.
+- **Wait for the refresh** (default) polls until it finishes; **Timeout** then cancels it (or leaves it running).
+
+The output has one row per refreshed object (one row for a whole-model refresh): workspace, model, refresh id, **status** (`Completed`, `Failed`, `Cancelled`, `TimedOut`), table, partition, the object's status, start, end, duration and Power BI's messages. A failed refresh is a status, not an error, so connect a **Router** on `status` to alert or retry.
+
+Enhanced refresh needs the workspace on **Premium, Premium Per User, Fabric or Embedded** capacity; on shared capacity the node fails with a message saying so.
+
+---
+
 ## Function library
 
 Functions written in a flow's **Imports → Functions** tab are available in every node of that flow. To reuse one in other flows, save it to the **function library**.

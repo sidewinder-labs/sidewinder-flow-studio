@@ -16,7 +16,7 @@ Download the installer from [sidewinderlabs.dev/download](https://sidewinderlabs
 - **Data** lives in the OS app-data folder (Linux: `~/.local/share/dev.sidewinderlabs.flowstudio/`, Windows: `%APPDATA%\dev.sidewinderlabs.flowstudio\`). About (click the FS logo) → *Where is my data* opens it.
 - **Back up `secret.key`** in that folder: it encrypts your saved connection passwords.
 - **Drivers built in**: PostgreSQL, MySQL/MariaDB (and StarRocks, Doris), SQL Server, Oracle, ClickHouse, Trino and SQLite. Snowflake, BigQuery, Redshift, Databricks, Druid, Azure Data Lake, Delta and Iceberg need Docker.
-- **Plugins built in**: curve fitting.
+- **Plugins built in**: curve fitting, IBM Planning Analytics (TM1), Power BI refresh.
 - **Settings** (the optional variables listed under [Settings](#settings)) go in a `.env` file in the data folder.
 - A database on your own computer is at `localhost`.
 
@@ -151,12 +151,12 @@ SMTP_FROM=sfs@localhost
 
 ## Plugins
 
-Plugins add engines, chart templates and examples. **Curve fitting** is included in the desktop app and the Docker images.
+Plugins add engines, connection types, chart templates and examples. More come from the **Plugins** menu (puzzle icon, top bar): official, signed packs from the Sidewinder Labs catalog that install on the desktop app and on Docker without rebuilding anything. The rest of this section is about building plugins into a Docker image yourself. **Curve fitting**, **IBM Planning Analytics (TM1)** and **Power BI refresh** are included in the desktop app and the Docker images.
 
 **In Docker**, the image installs the plugins named in `SFS_PLUGINS`, by short name (`sfs-plugin-<name>`). Add one in `.env` and rebuild the backend:
 
 ```bash
-SFS_PLUGINS=curvefit,sklearn
+SFS_PLUGINS=curvefit,tm1,powerbi,sklearn
 docker compose build --no-cache backend && docker compose up -d
 ```
 
