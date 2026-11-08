@@ -65,3 +65,6 @@ yarn-error.log*
 Thumbs.db
 desktop.ini
 desktop/sidecar/bundled-distributions.json
+
+# Machine-specific compose additions (e.g. host data folders)
+docker-compose.override.yml
