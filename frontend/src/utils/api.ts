@@ -159,7 +159,26 @@ export interface ConnectionImportResult {
   variables_added: number; variables_skipped: number
 }
 
+/** One entry of Meta → Settings. Secret values are never sent: only is_set. */
+export interface AppSetting {
+  key: string; label: string; group: string
+  type: 'int' | 'float' | 'bool' | 'size' | 'budget' | 'text' | 'secret'
+  help: string; applies: 'now' | 'restart'; placeholder: string; default: unknown
+  source: 'default' | 'app' | 'environment'; locked: boolean
+  value?: unknown; is_set?: boolean
+}
+export interface SettingsView {
+  settings: AppSetting[]; restart_needed: string[]; can_restart: boolean
+  memory: { total: number | null; used: number | null; budget: number | null }
+}
+
 export const api = {
+  settings: {
+    get: () => req<SettingsView>('/settings/'),
+    save: (values: Record<string, unknown>) =>
+      req<SettingsView>('/settings/', { method: 'PUT', body: JSON.stringify({ values }) }),
+    restart: () => req<{ restarting: boolean }>('/settings/restart', { method: 'POST' }),
+  },
   plugins: {
     get: () => req<PluginsView>('/plugins/'),
     refresh: () => req<PluginsView>('/plugins/catalog/refresh', { method: 'POST' }),
@@ -273,6 +292,8 @@ export const api = {
       ),
     clearCache: (project_id: string, flow_id: string) =>
       req<void>(`/execute/clear-cache?project_id=${project_id}&flow_id=${flow_id}`, { method: 'POST' }),
+    running: (project_id: string) =>
+      req<{ flow_ids: string[] }>(`/execute/running?project_id=${encodeURIComponent(project_id)}`),
   },
 
   runs: {

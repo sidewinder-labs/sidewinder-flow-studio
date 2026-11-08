@@ -180,3 +180,119 @@ def test_postgresql_partitioned_equals_unpartitioned():
     parts, info = arrow("pg", table="employees.employee", partition_on="id", partitions=8)
     assert info["path"] == "connectorx" and info["partitions"] == 8
     assert parts.sort_by("id").equals(whole.sort_by("id"))
+
+
+# ── Streaming into the cache file (the Database read node) ──────────────────
+
+def stream_vs_table(url, dialect, out, cargs=None, **kw):
+    table, _ = fast_read.read(url, dialect, cargs, **kw)
+    info = fast_read.read_to_ipc(str(out), url, dialect, cargs, **kw)
+    with pa.ipc.open_file(str(out)) as r:
+        got = r.read_all()
+    assert not list(out.parent.glob("*.tmp"))
+    return table, got, info
+
+
+@pytest.mark.parametrize("kw", [
+    {"table": "sales"},
+    {"tables": ["sales", "sales_2026"]},
+    {"sql": "SELECT id, amount FROM sales WHERE id > 500"},
+    {"table": "sales", "partition_on": "id", "partitions": 4},
+    {"sql": "SELECT * FROM sales WHERE id < 0"},                     # empty result
+], ids=["table", "tables", "sql", "partitioned", "empty"])
+@pytest.mark.parametrize("cargs", [None, {"timeout": 5}], ids=["connectorx", "sqlalchemy"])
+def test_streamed_read_equals_the_one_table_read(lite, tmp_path, monkeypatch, kw, cargs):
+    monkeypatch.setattr(fast_read, "STREAM_BATCH_ROWS", 64)          # many batches
+    table, got, info = stream_vs_table(lite, "sqlite", tmp_path / "o.arrow", cargs, **kw)
+    key = "id" if "id" in table.column_names else table.column_names[0]
+    assert got.num_rows == table.num_rows and got.schema.names == table.schema.names
+    if table.num_rows:
+        assert got.sort_by(key).to_pylist() == table.sort_by(key).to_pylist()
+    assert info["path"] == ("sqlalchemy" if cargs else "connectorx")
+
+
+def test_partitioned_stream_keeps_rows_with_a_null_key(lite, tmp_path):
+    with sa.create_engine(lite).begin() as c:
+        c.exec_driver_sql("INSERT INTO sales VALUES (NULL, 'X', 1.0), (NULL, 'Y', 2.0)")
+    table, got, _ = stream_vs_table(lite, "sqlite", tmp_path / "o.arrow", table="sales",
+                                    partition_on="id", partitions=4)
+    assert got.num_rows == table.num_rows == 1002
+
+
+def test_batches_that_cant_share_a_schema_fall_back(lite, tmp_path, monkeypatch):
+    monkeypatch.setattr(fast_read, "STREAM_BATCH_ROWS", 2)
+    with sa.create_engine(lite).begin() as c:                         # first chunk all NULL, then text
+        c.exec_driver_sql("CREATE TABLE odd (id INTEGER, note TEXT)")
+        c.exec_driver_sql("INSERT INTO odd VALUES (1, NULL), (2, NULL), (3, 'a'), (4, 'b')")
+        c.exec_driver_sql("CREATE TABLE other (x REAL)")
+        c.exec_driver_sql("INSERT INTO other VALUES (1.5)")
+    table, got, _ = stream_vs_table(lite, "sqlite", tmp_path / "a.arrow", {"timeout": 5}, table="odd")
+    assert got.to_pylist() == table.to_pylist()
+    table, got, _ = stream_vs_table(lite, "sqlite", tmp_path / "b.arrow", tables=["odd", "other"])
+    assert got.num_rows == 5 and set(got.schema.names) == set(table.schema.names)
+
+
+def test_a_failed_streamed_read_leaves_nothing_behind(lite, tmp_path):
+    out = tmp_path / "o.arrow"
+    with pytest.raises(Exception):
+        fast_read.read_to_ipc(str(out), lite, "sqlite", sql="SELECT * FROM no_such_table")
+    assert not out.exists() and not list(tmp_path.glob("*.tmp"))
+
+
+def test_arrow_stream_from_http_chunks():
+    t = pa.table({"a": list(range(1000)), "b": [str(i) for i in range(1000)]})
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, t.schema) as w:
+        for b in t.to_batches(max_chunksize=100):
+            w.write_batch(b)
+    data = sink.getvalue().to_pybytes()
+    chunks = (data[i:i + 333] for i in range(0, len(data), 333))     # arbitrary HTTP chunking
+    import io
+    got = pa.ipc.open_stream(io.BufferedReader(fast_read._Chunks(chunks))).read_all()
+    assert got.equals(t)
+
+
+def test_parallel_streams_bounded_and_errors_propagate():
+    batch = pa.record_batch({"a": [1, 2]})
+    out = list(fast_read._parallel([iter([batch] * 50) for _ in range(4)], queue_size=3))
+    assert sum(b.num_rows for b in out) == 400
+
+    def broken():
+        yield batch
+        raise RuntimeError("slice failed")
+    with pytest.raises(RuntimeError, match="slice failed"):
+        list(fast_read._parallel([iter([batch] * 50), broken()]))
+    g = fast_read._parallel([iter([batch] * 10_000) for _ in range(3)], queue_size=2)
+    next(g); g.close()                                                # consumer stops early: workers end
+
+
+def test_database_read_node_streams_to_its_cache_file(lite, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "FRAME_CACHE_DIR", str(tmp_path / "frames"))
+    monkeypatch.setattr(fast_read, "STREAM_BATCH_ROWS", 100)
+    async def quiet(*a, **k): pass
+    monkeypatch.setattr(executor.ws_manager, "broadcast", quiet)
+    flow = {"id": "f", "name": "f", "nodes": [
+        {"id": "t", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {"label": "Start", "run_mode": "manual"}},
+        {"id": "read", "type": "processor", "position": {"x": 0, "y": 0},
+         "data": {"label": "read", "engine": "fast_read", "connection": "db", "mode": "tables", "source": "sales"}},
+    ], "edges": [{"id": "e", "source": "t", "target": "read", "sourceHandle": "out", "targetHandle": "in"}]}
+    by = {r["node_id"]: r for r in asyncio.run(executor.execute_flow("p", flow, {"db": lite}, {},
+                                                                     connection_dialects={"db": "sqlite"}))}
+    assert by["read"]["status"] == "ok" and by["read"]["rows_out"] == 1000
+    assert by["read"]["reads"][0]["streamed"] is True
+    with pa.ipc.open_file(str(tmp_path / "frames" / "p" / "read.arrow")) as r:
+        assert r.num_record_batches >= 10
+
+
+CH = os.environ.get("SFS_TEST_CH_URL")
+
+
+@pytest.mark.skipif(not CH, reason="set SFS_TEST_CH_URL (clickhouse+http://user:pw@host:8123/db) to run")
+@pytest.mark.parametrize("partitions", [None, 4])
+def test_clickhouse_streamed_read(tmp_path, partitions):
+    kw = {"sql": "SELECT number AS id, toString(number) AS s FROM system.numbers LIMIT 300000"}
+    if partitions:
+        kw |= {"partition_on": "id", "partitions": partitions}
+    table, got, info = stream_vs_table(CH, "clickhouse", tmp_path / "o.arrow", **kw)
+    assert info["path"] == "clickhouse-arrow" and got.num_rows == table.num_rows == 300000
+    assert got.sort_by("id").equals(table.sort_by("id"))

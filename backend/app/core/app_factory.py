@@ -11,6 +11,7 @@ from app.core.database import init_db
 from app.scheduler.scheduler import start_scheduler, stop_scheduler
 from app.api import projects, connections, execute, metadata, ws, agent, runs, custom_processors, capabilities, diagnostics, explore, plugins
 from app.api import function_library
+from app.api import settings as settings_api
 
 
 @asynccontextmanager
@@ -38,6 +39,13 @@ async def lifespan(app: FastAPI):
         import logging; logging.getLogger("sfs").error("Plugin load failed: %s", _exc)
 
     await init_db()
+    try:
+        from app.engine.active_runs import close_interrupted_runs
+        await close_interrupted_runs()
+    except Exception as _exc:                              # noqa: BLE001
+        import logging; logging.getLogger("sfs").error("Closing interrupted runs failed: %s", _exc)
+    from app.core import memory_guard
+    memory_guard.start()
     start_scheduler()
     try:
         from app.scheduler.scheduler import load_all_schedules
@@ -70,6 +78,11 @@ def _quiet_access_log(path: str) -> None:
 
 
 def create_app() -> FastAPI:
+    # Settings saved in the app (Meta → Settings) first: some are read once,
+    # e.g. Polars' thread count when Polars is first imported.
+    from app.core import app_settings
+    app_settings.apply_all()
+
     app = FastAPI(
         title="Sidewinder Flow Studio API",
         version="1.39",
@@ -98,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(capabilities.router, prefix="/api/capabilities", tags=["capabilities"])
     app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["diagnostics"])
     app.include_router(plugins.router,     prefix="/api/plugins",     tags=["plugins"])
+    app.include_router(settings_api.router, prefix="/api/settings",   tags=["settings"])
     app.include_router(explore.router,     prefix="/api/explore",     tags=["explore"])
     app.include_router(ws.router,          prefix="/ws",              tags=["websocket"])
     @app.get(HEALTH_PATH, include_in_schema=False)

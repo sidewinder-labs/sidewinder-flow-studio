@@ -3,7 +3,6 @@
 Changes take effect when SFS restarts: plugins register at startup, and a
 running flow must not have its engines swapped underneath it.
 """
-import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -44,7 +43,7 @@ def _view(sfs_version: str, *, catalog_error: str | None = None) -> dict:
         "installed": installed, "available": available, "updates": updates,
         "catalog": {"url": catalog.url(), "generated_at": (cat or {}).get("generated_at"), "error": catalog_error},
         "licence": catalog.licence_summary(),
-        "can_restart": install_type() in ("docker", "desktop"),
+        "can_restart": install_type() in ("docker", "desktop"),  # see app.core.restart
     }
 
 
@@ -152,12 +151,8 @@ def delete_licence(request: Request):
 async def restart():
     """Docker and desktop only: exit, so the container restarts (restart:
     unless-stopped) or the desktop app offers Restart."""
-    from app.api.diagnostics import install_type
-    if install_type() not in ("docker", "desktop"):
+    from app.core import restart as _restart
+    if not _restart.can_restart():
         raise HTTPException(400, "Restart SFS yourself: this install has nothing to start it again.")
-
-    async def later():
-        await asyncio.sleep(0.5)
-        os._exit(3)
-    asyncio.get_running_loop().create_task(later())
+    _restart.schedule()
     return {"restarting": True}

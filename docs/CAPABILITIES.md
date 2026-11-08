@@ -135,14 +135,26 @@ of them: see [CURVE_FITTING.md](CURVE_FITTING.md).
 | DuckDB | Yes — scans the cached file, reads only the columns the query needs, spills to disk above its memory limit |
 | SQL / Ibis | N/A — the work happens in the warehouse; only results come back |
 
-Set a DuckDB node's **Memory limit** (e.g. `4GB`) in the node panel, or
-`SFS_DUCKDB_MEMORY_LIMIT` globally; `SFS_DUCKDB_TEMP_DIR` controls where it
-spills. Below the limit DuckDB stays in memory, so small frames are unaffected.
+Set a DuckDB node's **Memory limit** (e.g. `4GB`) in the node panel, or for all
+nodes in **Meta → Settings** (by default half the memory budget); the spill folder
+is set there too. Below the limit DuckDB stays in memory, so small frames are
+unaffected.
+
+Between nodes, DuckDB, Polars and **Database read** nodes write their output to
+the cache batch by batch, so it never has to fit in memory either; a Database
+read of a table larger than memory works.
+
+**Memory budget.** SFS stops running flows when it uses more memory than the
+budget in **Meta → Settings** (default 80% of the machine's memory), with the
+reason in the run history, instead of the machine running out of memory. DuckDB
+queries are interrupted, `fast_write` and streamed reads stop between batches; a
+pandas node in the middle of one call can't be interrupted, so if memory keeps
+climbing SFS restarts itself (Docker, desktop app) and records why.
 
 ### Parallel execution
 
-By default nodes run one at a time in dependency order. Set
-`SFS_PARALLEL_BRANCHES=1` to run independent branches concurrently — nodes are
+By default nodes run one at a time in dependency order. Turn on **Run
+independent branches in parallel** in Meta → Settings to run them concurrently — nodes are
 grouped into layers where nothing in a layer depends on anything else in it, and
 each layer runs together across cores. A flow that fans into three branches
 processes all three at once.
@@ -526,7 +538,7 @@ On the **Trigger** node, switch Run Mode to **Schedule** and set a cron expressi
 **Advanced scheduling**, on the same trigger node:
 
 - **Retries** with **exponential backoff** (`wait × 2^(attempt−1)`)
-- **Failure alerting** — Slack webhook + email (configure `SLACK_WEBHOOK_URL` / `SMTP_*` in `.env`)
+- **Failure alerting** — Slack webhook + email (configure them in **Meta → Settings → Failure alerts**)
 - **Calendar rules** — weekdays-only, and a skip-dates list for holidays
 - **Run history / audit** — every run and retry recorded, visible in **Meta → Runs** (status, trigger, attempt, duration, node counts, errors)
 

@@ -328,6 +328,14 @@ def build_exec_context(
                         table=table, tables=tables, sql=sql, schema=schema,
                         partition_on=partition_on, partitions=partitions, source_col=source_col)
 
+    def _fast_read_ipc(connection_name: str, out_path: str, **kwargs) -> dict:
+        """fast_read streamed into an Arrow IPC file (the Database read node)."""
+        from app.engine import fast_read as _fr
+        if connection_name not in connections:
+            raise ValueError(f"Connection '{connection_name}' not found. Available: {list(connections)}")
+        return _fr.read_to_ipc(out_path, connections[connection_name], dialects.get(connection_name, ""),
+                               connect_args.get(connection_name) or None, **kwargs)
+
     def fast_read(connection_name: str, *, table: str | None = None,
                   tables: list[str] | None = None, sql: str | None = None,
                   schema: str | None = None, partition_on: str | None = None,
@@ -415,7 +423,7 @@ def build_exec_context(
         # DuckDB relation streams from its source to the database, so memory
         # stays around one batch however large the load is.
         default_chunk = {"postgresql": 200_000, "clickhouse": 100_000}.get(dialect, 50_000)
-        chunk = int(kwargs.get("chunk_rows", default_chunk))
+        chunk = int(kwargs.get("chunk_rows") or os.environ.get("SFS_WRITE_CHUNK_ROWS") or default_chunk)
 
         # ── Iceberg via pyiceberg (direct catalog write) ───────────────────
         # NOTE: this writes straight to the Iceberg catalog (REST/Hive/Glue),
@@ -619,6 +627,7 @@ def build_exec_context(
         "read_tables": read_tables,
         "fast_read": fast_read,
         "_fast_read_arrow": _fast_read_arrow,
+        "_fast_read_ipc": _fast_read_ipc,
         "fast_write": fast_write,
         "vars": variables,
     }
@@ -785,8 +794,11 @@ def _arrow_batches(df, chunk_rows: int):
             return empty_schema(), iter(())
         schema, it = first.schema, itertools.chain([first], it)
 
+    from app.core.memory_guard import check as _budget_check
+
     def batches():
         for b in it:
+            _budget_check()                              # memory budget: stop between batches
             if b.schema != schema:                       # keep every batch on one schema
                 b = b.cast(schema)
             for off in range(0, b.num_rows, chunk_rows):
@@ -964,12 +976,16 @@ def exec_duckdb_processor(sql: str, frame_paths: list[str] | None = None,
     """
     import duckdb  # lazy — backend still starts if duckdb isn't installed
 
+    from app.core import memory_guard
     con = duckdb.connect()  # in-memory database, per-node execution
+    memory_guard.register_duckdb(con)                # interrupted if the memory budget trips
     attached = []
     try:
         # Memory ceiling + spill location. Without an explicit limit DuckDB
-        # uses ~80% of system RAM; on a shared box you usually want less.
-        limit = memory_limit or os.environ.get("SFS_DUCKDB_MEMORY_LIMIT")
+        # would take ~80% of RAM; by default it gets half the memory budget,
+        # so it spills to disk before the budget stops the run.
+        limit = (memory_limit or os.environ.get("SFS_DUCKDB_MEMORY_LIMIT")
+                 or memory_guard.duckdb_default_limit())
         if limit:
             try:
                 con.execute(f"SET memory_limit='{limit}'")
@@ -993,13 +1009,21 @@ def exec_duckdb_processor(sql: str, frame_paths: list[str] | None = None,
             attached.append(name)
             con.register(name, _duckdb_scan(path))
 
-        if output_path:
-            from app.core.duckdb_arrow import query_to_ipc
-            n = query_to_ipc(con, sql, output_path)    # streamed to the cache file
-            return pa.table({}) if n is None else _SUNK
-        from app.core.duckdb_arrow import query_to_arrow
-        return query_to_arrow(con, sql)
+        try:
+            if output_path:
+                from app.core.duckdb_arrow import query_to_ipc
+                n = query_to_ipc(con, sql, output_path)    # streamed to the cache file
+                return pa.table({}) if n is None else _SUNK
+            from app.core.duckdb_arrow import query_to_arrow
+            return query_to_arrow(con, sql)
+        except Exception as exc:
+            # Interrupted by the memory guard: DuckDB raises InterruptException,
+            # or an OSError when the interrupt reaches a streaming Arrow reader.
+            if memory_guard.exceeded() and not isinstance(exc, memory_guard.MemoryBudgetExceeded):
+                raise memory_guard.MemoryBudgetExceeded(memory_guard.exceeded()) from exc
+            raise
     finally:
+        memory_guard.unregister_duckdb(con)
         con.close()
 
 
@@ -1294,6 +1318,11 @@ def _fast_read_args(p: dict) -> dict:
 
 
 def _run_fast_read(ec: "EngineContext"):
+    # Streamed to the node's cache file batch by batch: a result larger than
+    # memory still loads.
+    if ec.output_path:
+        ec.exec_globals["_fast_read_ipc"](ec.params["connection"], ec.output_path, **_fast_read_args(ec.params))
+        return _SUNK
     arrow, _ = ec.exec_globals["_fast_read_arrow"](ec.params["connection"], **_fast_read_args(ec.params))
     return arrow
 
@@ -1556,6 +1585,8 @@ async def _execute_flow(
                 # pandas, DuckDB, Polars and Arrow all release the GIL for the
                 # heavy parts.
                 from app.engine import fast_read as _fr
+                from app.core.memory_guard import check as _budget_check
+                _budget_check()                    # memory budget tripped: don't start more work
                 _reads_token = _fr.begin_node()
                 try:
                     result = await asyncio.to_thread(spec.run, ec)
@@ -1860,8 +1891,15 @@ async def _execute_flow(
                 store_frame(project_id, node_id, df_out)
                 return
 
-        except Exception:
-            tb = traceback.format_exc()
+        except Exception as exc:
+            # A memory-budget stop surfaces as whatever the interrupted library
+            # raised (DuckDB via pyarrow: OSError "Interrupted!"): show the
+            # reason, not that library's traceback.
+            from app.core import memory_guard as _mg
+            if isinstance(exc, _mg.MemoryBudgetExceeded):
+                tb = str(exc)
+            else:
+                tb = _mg.exceeded() or traceback.format_exc()
             duration_ms = round((time.perf_counter() - t0) * 1000)
             await ws_manager.broadcast(flow_id, {
                 "type": "node_error",

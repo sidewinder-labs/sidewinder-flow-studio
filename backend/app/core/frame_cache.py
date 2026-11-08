@@ -105,8 +105,8 @@ def clear_flow_cache(flow_id: str):
     """Remove all cached frames for a flow (e.g. on re-run from root)."""
     base = Path(settings.FRAME_CACHE_DIR) / flow_id
     if base.exists():
-        for f in base.glob("*.arrow"):
-            f.unlink()
+        for f in [*base.glob("*.arrow"), *base.glob("*.arrow.*.tmp")]:   # .tmp: a write cut short
+            f.unlink(missing_ok=True)
 
 
 def get_frame_meta(flow_id: str, node_id: str) -> dict | None:

@@ -182,7 +182,8 @@ still better than the row-by-row default.
 streams, and DuckDB relations, and creates the target table (and schema) if
 missing. It **streams**: input is read in batches (`chunk_rows`) and each batch
 is sent as it arrives, so a LazyFrame goes from its source to the database
-without being collected — memory stays around one batch. Pass a LazyFrame
+without being collected — memory stays around one batch (`chunk_rows`, whose
+default can be set in Meta → Settings). Pass a LazyFrame
 (e.g. `pl.scan_csv(...)`) straight in; never `.collect()` it first. Each load is
 one transaction (Iceberg excepted): a failure leaves the table as it was.
 `mode="replace"` empties an existing table; add `recreate=True` to drop and
@@ -202,11 +203,17 @@ express upserts through pandas.
 
 ## Execution model — what agents must not assume
 
-- **Sequential by default**, parallel per layer when SFS_PARALLEL_BRANCHES=1.
+- **Sequential by default**, parallel per layer when SFS_PARALLEL_BRANCHES is on
+  (Meta → Settings; settings live in app/core/app_settings.py, an environment
+  variable of the same name overrides them).
   Never assume two nodes run in a particular order beyond dependency order.
 - **Every node boundary writes a full frame** to the Arrow cache on disk;
-  DuckDB and Polars nodes stream their result to it batch by batch, so it never
-  has to fit in memory. Within a node, DuckDB scans the cached file (column
+  DuckDB, Polars and Database read nodes stream their result to it batch by
+  batch, so it never has to fit in memory.
+- **A memory budget can stop a node** (app/core/memory_guard.py): above it,
+  DuckDB is interrupted and `fast_write` / streamed reads raise
+  MemoryBudgetExceeded between batches. Don't swallow broad exceptions around
+  them in node code, or the flow carries on past the stop. Within a node, DuckDB scans the cached file (column
   projection, spills to disk) and Polars scans lazily, so both handle
   larger-than-RAM data; **pandas loads the whole frame**. Generate Polars/DuckDB for large data, `sql`/`ibis` when it
   should stay in the warehouse.

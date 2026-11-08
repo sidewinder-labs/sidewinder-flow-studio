@@ -149,9 +149,9 @@ that is what makes inspect-and-rerun work. Streaming end-to-end and
 inspectability are in tension; SFS chose inspectability, with out-of-core
 processing inside each node.
 
-**Execution is sequential by default**, with opt-in parallelism. Set
-`SFS_PARALLEL_BRANCHES=1` to run independent branches concurrently on multiple
-cores — useful whenever a flow fans out. There is no distributed execution
+**Execution is sequential by default**, with opt-in parallelism. Turn on
+parallel branches in **Meta → Settings** to run independent branches concurrently
+on multiple cores — useful whenever a flow fans out. There is no distributed execution
 across machines; worker-queue scaling is on the roadmap.
 
 **Scheduled retries re-run the whole flow.** A retry re-executes from the start,

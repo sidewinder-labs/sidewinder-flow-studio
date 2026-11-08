@@ -21,6 +21,7 @@ Every read returns (pyarrow.Table, info); info["path"] says which one ran.
 """
 from __future__ import annotations
 
+import io
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
@@ -180,11 +181,8 @@ def _slices(lo, hi, n: int) -> list[tuple]:
 
 # ── The read ─────────────────────────────────────────────────────────────────
 
-def read(url: str, dialect: str, connect_args: dict | None = None, *,
-         table=None, tables=None, sql=None, schema=None,
-         partition_on: str | None = None, partitions: int | None = None,
-         source_col: str | None = "_source_table") -> tuple[pa.Table, dict]:
-    """Read from a database connection into one Arrow table. See the module doc."""
+def _plan(url: str, dialect: str, connect_args, partition_on, partitions):
+    """Which path a read takes, its partition count and the notes for the user."""
     if not url:
         raise FastReadError("No such connection.")
     if url.startswith(BROKEN):
@@ -192,9 +190,7 @@ def read(url: str, dialect: str, connect_args: dict | None = None, *,
     if url.startswith("adls://"):
         raise FastReadError("This is an Azure Data Lake storage connection: it has no SQL to read. "
                             "Use get_storage() with pd.read_parquet('abfs://…') instead.")
-    qs = queries(table=table, tables=tables, sql=sql, schema=schema)
     partitions = int(partitions or DEFAULT_PARTITIONS) if partition_on else 1
-
     uri = connectorx_uri(url, dialect) if not connect_args else None
     if dialect == "clickhouse":
         path = "clickhouse-arrow"
@@ -213,7 +209,26 @@ def read(url: str, dialect: str, connect_args: dict | None = None, *,
         notes.append(f"Read with SQLAlchemy because {why}.")
         if partition_on:
             notes.append("partition_on is ignored on this path.")
+    return path, uri, partitions, notes
 
+
+def _info(path, rows, qs, partition_on, partitions, notes) -> dict:
+    info = {"path": path, "rows": rows, "queries": len(qs),
+            "partitions": partitions if partition_on and path != "sqlalchemy" else 1}
+    if notes:
+        info["note"] = " ".join(notes)
+    log.info("fast_read via %s: %s rows, %s queries, %s partitions",
+             path, info["rows"], info["queries"], info["partitions"])
+    return info
+
+
+def read(url: str, dialect: str, connect_args: dict | None = None, *,
+         table=None, tables=None, sql=None, schema=None,
+         partition_on: str | None = None, partitions: int | None = None,
+         source_col: str | None = "_source_table") -> tuple[pa.Table, dict]:
+    """Read from a database connection into one Arrow table. See the module doc."""
+    path, uri, partitions, notes = _plan(url, dialect, connect_args, partition_on, partitions)
+    qs = queries(table=table, tables=tables, sql=sql, schema=schema)
     parts = []
     for query, source in qs:
         part = _read_one(path, url, uri, connect_args, query, partition_on, partitions)
@@ -221,13 +236,7 @@ def read(url: str, dialect: str, connect_args: dict | None = None, *,
             part = part.append_column(source_col, pa.array([source] * part.num_rows, pa.string()))
         parts.append(part)
     result = parts[0] if len(parts) == 1 else pa.concat_tables(parts, promote_options="default")
-
-    info = {"path": path, "rows": result.num_rows, "queries": len(qs),
-            "partitions": partitions if partition_on and path != "sqlalchemy" else 1}
-    if notes:
-        info["note"] = " ".join(notes)
-    log.info("fast_read via %s: %s rows, %s queries, %s partitions",
-             path, info["rows"], info["queries"], info["partitions"])
+    info = _info(path, result.num_rows, qs, partition_on, partitions, notes)
     record(info)
     return result, info
 
@@ -289,6 +298,217 @@ def _read_one(path, url, uri, connect_args, query, partition_on, partitions) -> 
         return pa.Table.from_pandas(pd.read_sql(query, eng), preserve_index=False)
     finally:
         eng.dispose()
+
+# ── Streaming: the Database read node writes batches as they arrive ─────────
+# The same reads as above, but batch by batch into the node's cache file, so
+# a result larger than memory still loads. Falls back to the one-table read
+# when the batches can't share one schema (several tables with different
+# columns; SQLAlchemy chunks whose inferred types change).
+
+STREAM_BATCH_ROWS = 100_000
+
+
+class _Unstreamable(Exception):
+    pass
+
+
+def _cx_stream(uri: str, query: str, partition_on=None, rng=None, partitions: int = 1):
+    import connectorx as cx
+    kwargs = {"partition_on": partition_on, "partition_range": rng, "partition_num": partitions} if partition_on else {}
+    yield from cx.read_sql(uri, query, return_type="arrow_stream", batch_size=STREAM_BATCH_ROWS, **kwargs)
+
+
+class _Chunks(io.RawIOBase):
+    """File-like view of an iterator of bytes chunks (an HTTP response body)."""
+    def __init__(self, it):
+        self.it, self.buf = it, b""
+
+    def readable(self):
+        return True
+
+    def readinto(self, b):
+        while not self.buf:
+            try:
+                self.buf = next(self.it)
+            except StopIteration:
+                return 0
+        n = min(len(b), len(self.buf))
+        b[:n], self.buf = self.buf[:n], self.buf[n:]
+        return n
+
+
+def _ch_stream(ch: "_ClickHouse", query: str):
+    import httpx
+    with httpx.Client(auth=ch.auth, timeout=3600) as client:
+        with client.stream("POST", ch.base, params={"database": ch.database},
+                           content=f"{query}\nFORMAT ArrowStream".encode()) as r:
+            if r.status_code != 200:
+                raise FastReadError(f"ClickHouse: {r.read().decode(errors='replace').strip()[:500]}")
+            body = io.BufferedReader(_Chunks(r.iter_bytes(1 << 20)), 1 << 20)
+            if not body.peek(1):
+                return                                   # empty result: no stream at all
+            yield from pa.ipc.open_stream(body)
+
+
+def _parallel(gens: list, queue_size: int = 8):
+    """Run several batch generators in threads; yield their batches as they
+    come. A bounded queue keeps memory to a few batches."""
+    import queue
+    import threading
+    q: queue.Queue = queue.Queue(maxsize=queue_size)
+    stop = threading.Event()
+    DONE = object()
+
+    def work(g):
+        try:
+            for b in g:
+                while not stop.is_set():
+                    try:
+                        q.put(b, timeout=0.2)
+                        break
+                    except queue.Full:
+                        continue
+                if stop.is_set():
+                    return
+        except BaseException as e:                       # noqa: BLE001 — handed to the consumer
+            q.put(e)
+        finally:
+            q.put(DONE)
+
+    threads = [threading.Thread(target=work, args=(g,), daemon=True) for g in gens]
+    for t in threads:
+        t.start()
+    live = len(threads)
+    try:
+        while live:
+            item = q.get()
+            if item is DONE:
+                live -= 1
+            elif isinstance(item, BaseException):
+                raise item
+            else:
+                yield item
+    finally:
+        stop.set()
+        while live:                                      # unblock workers waiting on a full queue
+            try:
+                if q.get(timeout=0.5) is DONE:
+                    live -= 1
+            except Exception:
+                break
+
+
+def _sa_stream(url, connect_args, query: str):
+    import pandas as pd
+    import sqlalchemy as sa
+    eng = sa.create_engine(url, connect_args=connect_args) if connect_args else sa.create_engine(url)
+    try:
+        with eng.connect().execution_options(stream_results=True) as conn:   # server-side cursor
+            for chunk in pd.read_sql(sa.text(query), conn, chunksize=STREAM_BATCH_ROWS):
+                yield from pa.Table.from_pandas(chunk, preserve_index=False).to_batches()
+    finally:
+        eng.dispose()
+
+
+def _stream_one(path, url, uri, connect_args, query, partition_on, partitions):
+    if path == "connectorx":
+        if not partition_on:
+            yield from _cx_stream(uri, query)
+            return
+        lo, hi, nulls = _check_partition_column(
+            _cx_read(uri, _min_max_query(query, partition_on), None, None, 1), partition_on, integer_only=True)
+        if lo is None or lo == hi:
+            yield from _cx_stream(uri, query)
+            return
+        yield from _cx_stream(uri, query, partition_on, (lo, hi), partitions)
+        if nulls:
+            yield from _cx_stream(uri, _nulls_query(query, partition_on))
+        return
+
+    if path == "clickhouse-arrow":
+        ch = _ClickHouse(url)
+        if not partition_on or partitions <= 1:
+            yield from _ch_stream(ch, query)
+            return
+        lo, hi, nulls = _check_partition_column(ch.arrow(_min_max_query(query, partition_on)), partition_on)
+        slices = _slices(lo, hi, partitions)
+        if len(slices) <= 1 and not nulls:
+            yield from _ch_stream(ch, query)
+            return
+        gens = [_ch_stream(ch, f"SELECT * FROM ({query}) AS sfs_q WHERE {partition_on} >= {a!r} "
+                               f"AND {partition_on} {'<=' if last else '<'} {b!r}") for a, b, last in slices]
+        if nulls:
+            gens.append(_ch_stream(ch, _nulls_query(query, partition_on)))
+        yield from _parallel(gens)
+        return
+
+    yield from _sa_stream(url, connect_args, query)
+
+
+def read_to_ipc(out_path: str, url: str, dialect: str, connect_args: dict | None = None, *,
+                table=None, tables=None, sql=None, schema=None,
+                partition_on: str | None = None, partitions: int | None = None,
+                source_col: str | None = "_source_table") -> dict:
+    """The same read as read(), written batch by batch to an Arrow IPC file
+    at out_path, so the result never has to fit in memory. Returns the info."""
+    import os
+    import uuid
+
+    from app.core.memory_guard import check
+    path, uri, partitions, notes = _plan(url, dialect, connect_args, partition_on, partitions)
+    qs = queries(table=table, tables=tables, sql=sql, schema=schema)
+    tmp = f"{out_path}.{uuid.uuid4().hex[:12]}.tmp"
+    writer, wschema, n = None, None, 0
+    try:
+        for query, source in qs:
+            for batch in _stream_one(path, url, uri, connect_args, query, partition_on, partitions):
+                check()                                      # memory budget: stop between batches
+                if source and source_col:
+                    batch = batch.append_column(source_col, pa.array([source] * batch.num_rows, pa.string()))
+                if writer is None:
+                    wschema = batch.schema
+                    writer = pa.ipc.new_file(tmp, wschema)
+                elif batch.schema != wschema:
+                    try:
+                        batch = batch.cast(wschema)
+                    except (pa.ArrowInvalid, pa.ArrowNotImplementedError, ValueError) as e:
+                        raise _Unstreamable(str(e)) from e
+                writer.write_batch(batch)
+                n += batch.num_rows
+        if writer is None:                                   # no rows at all: same frame read() gives
+            empty, _ = read(url, dialect, connect_args, table=table, tables=tables, sql=sql, schema=schema,
+                            partition_on=partition_on, partitions=partitions, source_col=source_col)
+            writer = pa.ipc.new_file(tmp, empty.schema)
+            writer.write_table(empty)
+            n = empty.num_rows
+        writer.close()
+        writer = None
+        os.replace(tmp, out_path)
+    except _Unstreamable as e:
+        if writer is not None:
+            writer.close()
+        os.remove(tmp)
+        log.info("fast_read: batches don't share one schema (%s); reading in one piece", e)
+        table_, info = read(url, dialect, connect_args, table=table, tables=tables, sql=sql, schema=schema,
+                            partition_on=partition_on, partitions=partitions, source_col=source_col)
+        with pa.ipc.new_file(tmp, table_.schema) as w:
+            w.write_table(table_)
+        os.replace(tmp, out_path)
+        return info
+    except BaseException:
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception:
+                pass
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+    info = _info(path, n, qs, partition_on, partitions, notes)
+    info["streamed"] = True
+    record(info)
+    return info
+
 
 # ── Which path each read in a node took, for the node's output ───────────────
 # The executor opens a list per node; asyncio.to_thread copies the context into

@@ -117,35 +117,23 @@ Then rebuild: `docker compose up --build -d` (or `docker compose -f docker-compo
 
 ### Settings
 
-Optional settings are environment variables. In Docker, add them to the `backend` service's `environment:` block in `docker-compose.yml` (or to `docker-compose.single.yml`); in the desktop app, put them in the data folder's `.env`.
+Change settings in the app: **Meta → Settings**. No config file to find or edit.
 
-```ini
-# Explore guardrails: max rows per chart query, query time limit
-EXPLORE_ROW_CAP=50000
-EXPLORE_TIMEOUT_S=30
+| Group | Settings |
+|---|---|
+| Memory & performance | Memory budget, DuckDB memory limit and spill folder, Polars threads, `fast_write` batch size, parallel branches |
+| Explore | Rows per chart query, query time limit |
+| Failure alerts | Slack webhook, SMTP server, port, user, password, sender |
 
-# AI agent (or configure providers in the UI: Meta → AI)
-ANTHROPIC_API_KEY=
+Most apply at once. A setting marked **restart** (Polars threads) shows a **Restart now** button after saving; in Docker and the desktop app SFS restarts itself in a few seconds. Values are kept in the data folder (`settings.json`), so they survive updates and come along in a backup; the Slack webhook and SMTP password are encrypted like connection passwords and never shown again. AI providers are set in **Meta → AI**.
 
-# Run independent branches concurrently (off by default)
-SFS_PARALLEL_BRANCHES=0
+**Memory budget.** When SFS uses more memory than this, running flows are stopped with a message in the run history, instead of the machine running out of memory. The default is 80% of the machine's memory (or of the container's limit). A smaller machine can lower it, a large server can raise it; `off` turns it off. DuckDB nodes get half the budget by default and spill to disk beyond it.
 
-# DuckDB memory ceiling and spill location. Below the limit DuckDB works in
-# memory; above it, it spills instead of failing.
-SFS_DUCKDB_MEMORY_LIMIT=
-SFS_DUCKDB_TEMP_DIR=
+**Managed deployments.** Every setting can also be set as an environment variable of the same name (`SFS_MEMORY_BUDGET`, `SFS_DUCKDB_MEMORY_LIMIT`, `SFS_DUCKDB_TEMP_DIR`, `POLARS_MAX_THREADS`, `SFS_WRITE_CHUNK_ROWS`, `SFS_PARALLEL_BRANCHES`, `EXPLORE_ROW_CAP`, `EXPLORE_TIMEOUT_S`, `SLACK_WEBHOOK_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`): in Docker in the `backend` service's `environment:` block, in the desktop app in the data folder's `.env`. An environment variable wins and shows as locked in the app.
 
-# Where isolated plugin virtual environments live
-SFS_PLUGIN_VENVS_DIR=
+Deployment settings stay in the environment, because SFS needs them to start: data folders, `METADATA_DB_URL`, `SECRET_KEY`, `SFS_PLUGIN_VENVS_DIR`.
 
-# Scheduler failure alerts
-SLACK_WEBHOOK_URL=
-SMTP_HOST=
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASSWORD=
-SMTP_FROM=sfs@localhost
-```
+**A hard memory cap.** The budget is checked four times a second, so a sudden huge allocation can overshoot it. To make sure SFS can never take the whole machine, also give the container a limit in `docker-compose.yml` (`mem_limit: 24g` under `backend`); the budget then works within it.
 
 ---
 

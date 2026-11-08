@@ -112,6 +112,9 @@ interface AppState {
 
   runFlow: (startFromNode?: string, resumeFromNode?: string) => Promise<void>
   handleWsEvent: (event: WsEvent) => void
+  /** After the live connection drops and comes back: if the backend no longer
+   *  runs the flow (it restarted), end the run here and show why. */
+  checkRunAlive: () => Promise<void>
   clearExecState: () => void
 
   setSelectedNode: (id: string | null) => void
@@ -621,6 +624,21 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  checkRunAlive: async () => {
+    const { running, activeProject, activeFlowId } = get()
+    if (!running || !activeProject || !activeFlowId) return
+    try {
+      const { flow_ids } = await api.execute.running(activeProject.id)
+      if (flow_ids.includes(activeFlowId)) return
+      const last = (await api.runs.list(activeProject.id, 20)).find((r) => r.flow_id === activeFlowId)
+      set((s) => ({
+        running: false,
+        runError: last?.error ?? 'The run was interrupted: SFS restarted while this flow was running.',
+        execState: Object.fromEntries(Object.entries(s.execState).map(([id, st]) =>
+          [id, st.status === 'running' ? { ...st, status: 'error' as const } : st])),
+      }))
+    } catch { /* backend still unreachable: the next reconnect checks again */ }
+  },
   clearExecState: () => set({ execState: {}, running: false }),
 
   setSelectedNode: (id) => set((s) => {

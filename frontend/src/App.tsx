@@ -16,8 +16,8 @@ import { api, type DesktopInfo } from '@/utils/api'
 const ExploreView = lazy(() => import('@/components/explore/ExploreView'))
 
 function FlowCanvas({ flowId }: { flowId: string }) {
-  const { handleWsEvent } = useStore()
-  useFlowWebSocket(flowId, (e: WsEvent) => handleWsEvent(e))
+  const { handleWsEvent, checkRunAlive } = useStore()
+  useFlowWebSocket(flowId, (e: WsEvent) => handleWsEvent(e), checkRunAlive)
   return <Canvas key={flowId} flowId={flowId} />
 }
 

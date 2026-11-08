@@ -47,7 +47,7 @@ Example:
 
 # Names injected into node scope that aren't helpers to document: modules and
 # internals. A test fails if a new injected name is in neither list.
-NOT_HELPERS = {"__builtins__", "pd", "sa", "_fast_read_arrow"}
+NOT_HELPERS = {"__builtins__", "pd", "sa", "_fast_read_arrow", "_fast_read_ipc"}
 
 LIBRARY = (
     {"name": "pd.read_csv", "signature": "pd.read_csv(path, sep=',', ...)", "category": "Read data",

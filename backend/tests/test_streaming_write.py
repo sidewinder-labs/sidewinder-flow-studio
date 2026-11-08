@@ -115,7 +115,7 @@ def test_duckdb_node_streams_to_the_cache_file(tmp_path):
     assert isinstance(res, executor._Sunk)
     with pa.ipc.open_file(out) as r:
         assert r.num_record_batches > 1 and r.read_all().num_rows == 2500000
-    assert not os.path.exists(out + ".tmp")
+    assert not list(tmp_path.glob("*.tmp"))
     # DDL only: the cached frame is what the in-memory path returns (version-dependent)
     want = executor.exec_duckdb_processor("CREATE TABLE x (a INT)", [])
     res = executor.exec_duckdb_processor("CREATE TABLE x (a INT)", [], output_path=out)
@@ -127,7 +127,7 @@ def test_failed_duckdb_query_leaves_no_partial_frame(tmp_path):
     out = tmp_path / "out.arrow"
     with pytest.raises(Exception):
         executor.exec_duckdb_processor("SELECT CAST('x' || range AS INT) FROM range(10)", [], output_path=str(out))
-    assert not out.exists() and not (tmp_path / "out.arrow.tmp").exists()
+    assert not out.exists() and not list(tmp_path.glob("*.tmp"))
 
 
 def test_duckdb_union_into_polars_fast_write_flow(lite, tmp_path, monkeypatch):
@@ -180,3 +180,21 @@ def test_postgresql_copy_streams_batches_and_is_one_transaction(monkeypatch):
         with eng.begin() as c:
             c.exec_driver_sql("DROP SCHEMA IF EXISTS sfs_stream_test CASCADE")
         eng.dispose()
+
+
+def test_overlapping_runs_of_one_node_each_write_their_own_file(tmp_path):
+    """A scheduled and a manual run of the same flow can write the same
+    node's frame at once: neither may lose its file."""
+    import threading
+    out, errs = str(tmp_path / "n.arrow"), []
+    def run():
+        try:
+            executor.exec_duckdb_processor("SELECT range AS id FROM range(3000000)", [], output_path=out)
+        except Exception as e:
+            errs.append(e)
+    ts = [threading.Thread(target=run) for _ in range(4)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert not errs
+    with pa.ipc.open_file(out) as r:
+        assert r.read_all().num_rows == 3000000
+    assert not list(tmp_path.glob("*.tmp"))

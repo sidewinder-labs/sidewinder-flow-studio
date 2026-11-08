@@ -157,3 +157,12 @@ def inspect_frame(project_id: str, node_id: str, limit: int = 500):
     schema = [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns]
     rows = json.loads(df.to_json(orient="records", date_format="iso"))
     return {"schema": schema, "rows": rows, "total": meta["rows"], "meta": meta}
+
+
+@router.get("/running")
+def running(project_id: str):
+    """Flows of the project executing now, in this backend process. After a
+    restart the browser asks, so a run that died with the old process stops
+    showing as running."""
+    from app.engine.active_runs import running_flows
+    return {"flow_ids": sorted(running_flows(project_id))}
