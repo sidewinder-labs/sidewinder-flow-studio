@@ -28,7 +28,7 @@ import pyarrow as pa
 import sqlalchemy as sa
 
 from app.core.frame_cache import (store_frame, load_frame, has_frame, load_frame_arrow,
-                                  store_frame_arrow, frame_path, frame_dest_path)
+                                  store_frame_arrow, frame_path, frame_dest_path, get_frame_meta)
 from app.engine.registry import (
     EngineSpec, EngineContext, register_engine, get_engine_spec,
 )
@@ -386,7 +386,13 @@ def build_exec_context(
         PostgreSQL COPY, ClickHouse native insert, SQL Server fast_executemany,
         MySQL/StarRocks/Doris and Oracle batched inserts, Iceberg via pyiceberg;
         a batched to_sql for anything else. Far faster than df.to_sql. Accepts
-        pandas, Polars (also lazy) and Arrow. Creates the table if it is missing.
+        pandas, Polars (also lazy), Arrow and DuckDB relations. Creates the
+        table if it is missing.
+
+        Data is sent in batches as it is read: a Polars LazyFrame (e.g.
+        pl.scan_csv) streams from its source to the database without ever
+        being loaded whole, so loads larger than memory work. Each load is one
+        transaction (Iceberg excepted), so a failure leaves the table as it was.
 
         Args:
             df: the data to write.
@@ -394,7 +400,7 @@ def build_exec_context(
             table: the table, e.g. "public.orders".
             mode: "append" (default) or "replace" (empties the table first).
             recreate: True drops and recreates the table (replace keeps its definition).
-            chunk_rows: rows per batch for the streaming loaders.
+            chunk_rows: rows per batch (default 200k PostgreSQL, 100k ClickHouse, 50k others).
 
         Returns:
             int: the number of rows written
@@ -405,18 +411,49 @@ def build_exec_context(
         dialect = dialects.get(connection_name, "")
         schema, name = _split_table(table)
         recreate = bool(kwargs.get("recreate"))
+        # Input is read in batches (see _arrow_batches): a Polars LazyFrame or a
+        # DuckDB relation streams from its source to the database, so memory
+        # stays around one batch however large the load is.
+        default_chunk = {"postgresql": 200_000, "clickhouse": 100_000}.get(dialect, 50_000)
+        chunk = int(kwargs.get("chunk_rows", default_chunk))
+
+        # ── Iceberg via pyiceberg (direct catalog write) ───────────────────
+        # NOTE: this writes straight to the Iceberg catalog (REST/Hive/Glue),
+        # NOT through a Trino connection. A Trino connection queries Iceberg but
+        # cannot bulk-load it — pass iceberg_catalog=... + catalog_props=... so
+        # pyiceberg can reach the catalog directly. Whole frame: every pyiceberg
+        # write is a snapshot commit, so batching would mean one commit per batch.
+        if dialect == "iceberg" or kwargs.get("iceberg_catalog"):
+            if not kwargs.get("iceberg_catalog") and not kwargs.get("catalog_props"):
+                raise ValueError(
+                    "fast_write to Iceberg needs a pyiceberg catalog. Pass "
+                    "iceberg_catalog='name' and/or catalog_props={'uri': ..., 'type': 'rest'/'glue'/'hive', ...}. "
+                    "A Trino connection can't bulk-load Iceberg — it only queries it."
+                )
+            from pyiceberg.catalog import load_catalog
+            cat_name = kwargs.get("iceberg_catalog")
+            cat_props = kwargs.get("catalog_props", {})
+            cat = load_catalog(cat_name, **cat_props) if cat_props else load_catalog(cat_name)
+            tbl = cat.load_table(table)
+            arrow_tbl = pa.Table.from_pandas(_to_pandas(df), preserve_index=False)
+            if mode == "replace":
+                tbl.overwrite(arrow_tbl)
+            else:
+                tbl.append(arrow_tbl)
+            return arrow_tbl.num_rows
+
+        arrow_schema, batches = _arrow_batches(df, chunk)
 
         # ── PostgreSQL: streaming COPY ─────────────────────────────────────
-        # Input is normalised to Arrow and sent to COPY in chunks, so the full
-        # CSV never exists in memory at once. Missing tables are created from
-        # the frame's schema; mode="replace" truncates (keeping the table
-        # definition) unless recreate=True, which drops and recreates it.
+        # Each batch is turned into CSV and sent to COPY as it arrives. Missing
+        # tables are created from the frame's schema; mode="replace" truncates
+        # (keeping the table definition) unless recreate=True, which drops and
+        # recreates it. One transaction: a failure leaves the table as it was.
         if dialect == "postgresql":
             import io
             import pyarrow.csv as pacsv
-            arrow = _to_arrow_table(df)
             target = _qident(schema, name)
-            collist = ", ".join(_qident(c) for c in arrow.column_names)
+            collist = ", ".join(_qident(c) for c in arrow_schema.names)
 
             eng = get_engine(connection_name)
             raw = eng.raw_connection()
@@ -430,18 +467,17 @@ def build_exec_context(
                     if schema:
                         cur.execute(f"CREATE SCHEMA IF NOT EXISTS {_qident(schema)}")
                     cols_ddl = ", ".join(
-                        f"{_qident(f.name)} {_pg_type(f.type)}" for f in arrow.schema)
+                        f"{_qident(f.name)} {_pg_type(f.type)}" for f in arrow_schema)
                     cur.execute(f"CREATE TABLE {target} ({cols_ddl})")
                     created = True
                 if mode == "replace" and not created:
                     cur.execute(f"TRUNCATE TABLE {target}")
 
                 opts = pacsv.WriteOptions(include_header=False)
-                chunk = int(kwargs.get("chunk_rows", 200_000))
                 # CSV: unquoted empty = NULL, quoted "" = empty string — the
                 # Arrow CSV writer and PostgreSQL agree on this by default.
                 with cur.copy(f"COPY {target} ({collist}) FROM STDIN WITH (FORMAT CSV)") as cp:
-                    for batch in arrow.to_batches(max_chunksize=chunk):
+                    for batch in batches:
                         buf = io.BytesIO()
                         pacsv.write_csv(batch, buf, write_options=opts)
                         cp.write(buf.getvalue())
@@ -454,29 +490,11 @@ def build_exec_context(
                 raw.close()
             return n
 
-        # ClickHouse works on Arrow directly: going through pandas would turn
-        # nullable integer columns into Float64.
-        src = df
-        # Remaining paths work on pandas. Normalise Polars / Arrow input, and
-        # create the table if it does not exist yet.
-        df = _to_pandas(df)
-        n = len(df)
-        if dialect not in ("clickhouse", "iceberg") and not kwargs.get("iceberg_catalog"):
-            eng_ = get_engine(connection_name)
-            insp = sa.inspect(eng_)
-            if recreate and insp.has_table(name, schema=schema):
-                with eng_.begin() as c:
-                    c.exec_driver_sql(f"DROP TABLE {table}")
-                insp = sa.inspect(eng_)
-            if not insp.has_table(name, schema=schema):
-                df.head(0).to_sql(name, eng_, schema=schema, if_exists="fail", index=False)
-
-        # ── ClickHouse: native block insert via clickhouse driver ──────────
-        # pandas can't create ClickHouse tables (they need an ENGINE), so a
-        # missing table is created here from the frame's Arrow schema.
+        # ── ClickHouse: ArrowStream over HTTP, one body per batch ──────────
+        # Works on Arrow directly: going through pandas would turn nullable
+        # integer columns into Float64. pandas can't create ClickHouse tables
+        # (they need an ENGINE), so a missing table is created here.
         if dialect == "clickhouse":
-            import pyarrow as _pa
-            arrow = _to_arrow_table(src)
             eng = get_engine(connection_name)
             target = _ch_ident(schema, name)
             with eng.begin() as c:
@@ -486,7 +504,6 @@ def build_exec_context(
                 if not int(exists or 0):
                     if schema:
                         c.exec_driver_sql(f"CREATE DATABASE IF NOT EXISTS {_ch_ident(schema)}")
-                    arrow_schema = arrow.schema
                     cols_ddl = ", ".join(f"{_ch_ident(f.name)} {_ch_type(f.type)}" for f in arrow_schema)
                     c.exec_driver_sql(
                         f"CREATE TABLE {target} ({cols_ddl}) ENGINE = MergeTree ORDER BY tuple()")
@@ -499,112 +516,94 @@ def build_exec_context(
             u = eng.url
             proto = "https" if u.query.get("protocol") == "https" else "http"
             base = f"{proto}://{u.host}:{u.port or (8443 if proto == 'https' else 8123)}/"
-            collist = ", ".join(_ch_ident(c) for c in arrow.column_names)
+            collist = ", ".join(_ch_ident(c) for c in arrow_schema.names)
             params = {"query": f"INSERT INTO {target} ({collist}) FORMAT ArrowStream",
                       "database": u.database or "default"}
-            chunk = int(kwargs.get("chunk_rows", 100_000))
+            n = 0
             with httpx.Client(auth=(u.username or "default", u.password or ""), timeout=600) as http:
-                for batch in arrow.to_batches(max_chunksize=chunk):
-                    sink = _pa.BufferOutputStream()
-                    with _pa.ipc.new_stream(sink, arrow.schema) as w:
+                for batch in batches:
+                    sink = pa.BufferOutputStream()
+                    with pa.ipc.new_stream(sink, arrow_schema) as w:
                         w.write_batch(batch)
                     r = http.post(base, params=params, content=sink.getvalue().to_pybytes())
                     if r.status_code != 200:
                         raise RuntimeError(f"ClickHouse insert into {table} failed: {r.text[:500]}")
+                    n += batch.num_rows
             return n
 
-        # ── Iceberg via pyiceberg (direct catalog write) ───────────────────
-        # NOTE: this writes straight to the Iceberg catalog (REST/Hive/Glue),
-        # NOT through a Trino connection. A Trino connection queries Iceberg but
-        # cannot bulk-load it — pass iceberg_catalog=... + catalog_props=... so
-        # pyiceberg can reach the catalog directly.
-        if dialect == "iceberg" or kwargs.get("iceberg_catalog"):
-            if not kwargs.get("iceberg_catalog") and not kwargs.get("catalog_props"):
-                raise ValueError(
-                    "fast_write to Iceberg needs a pyiceberg catalog. Pass "
-                    "iceberg_catalog='name' and/or catalog_props={'uri': ..., 'type': 'rest'/'glue'/'hive', ...}. "
-                    "A Trino connection can't bulk-load Iceberg — it only queries it."
-                )
-            import pyarrow as _pa
-            from pyiceberg.catalog import load_catalog
-            cat_name = kwargs.get("iceberg_catalog")
-            cat_props = kwargs.get("catalog_props", {})
-            cat = load_catalog(cat_name, **cat_props) if cat_props else load_catalog(cat_name)
-            tbl = cat.load_table(table)
-            arrow_tbl = _pa.Table.from_pandas(df, preserve_index=False)
+        # ── Row-based loaders: batches become pandas only for table creation,
+        # and Python row tuples (None for NULL) one batch at a time. ─────────
+        import itertools
+        first = next(batches, None)
+        first_pd = (first if first is not None else arrow_schema.empty_table()).to_pandas()
+        batches = itertools.chain([first] if first is not None else [], batches)
+
+        def rows_of(batch):
+            return list(zip(*(col.to_pylist() for col in batch.columns)))
+
+        eng = get_engine(connection_name)
+        insp = sa.inspect(eng)
+        if recreate and insp.has_table(name, schema=schema):
+            with eng.begin() as c:
+                c.exec_driver_sql(f"DROP TABLE {table}")
+            insp = sa.inspect(eng)
+        if not insp.has_table(name, schema=schema):
+            first_pd.head(0).to_sql(name, eng, schema=schema, if_exists="fail", index=False)
+
+        def executemany_load(sql: str, setup=None) -> int:
             if mode == "replace":
-                tbl.overwrite(arrow_tbl)
-            else:
-                tbl.append(arrow_tbl)
+                with eng.begin() as c:
+                    c.exec_driver_sql(f"TRUNCATE TABLE {table}")
+            n = 0
+            raw = eng.raw_connection()
+            try:
+                cur = raw.cursor()
+                if setup:
+                    setup(cur)
+                for batch in batches:
+                    cur.executemany(sql, rows_of(batch))
+                    n += batch.num_rows
+                raw.commit()                     # one transaction for the whole load
+            except Exception:
+                raw.rollback()
+                raise
+            finally:
+                raw.close()
             return n
 
+        cols = arrow_schema.names
         # ── SQL Server: pyodbc fast_executemany (single flag → bulk) ───────
         if dialect == "mssql":
-            eng = get_engine(connection_name)
-            if mode == "replace":
-                with eng.begin() as c:
-                    c.exec_driver_sql(f"TRUNCATE TABLE {table}")
-            cols = list(df.columns)
-            collist = ", ".join(f"[{c}]" for c in cols)
-            qs = ", ".join(["?"] * len(cols))
-            rows = [tuple(None if pd.isna(v) else v for v in r)
-                    for r in df.itertuples(index=False, name=None)]
-            raw = eng.raw_connection()
-            try:
-                cur = raw.cursor()
+            def _fast(cur):
                 cur.fast_executemany = True          # the speed switch
-                cur.executemany(f"INSERT INTO {table} ({collist}) VALUES ({qs})", rows)
-                raw.commit()
-            finally:
-                raw.close()
-            return n
+            return executemany_load(
+                f"INSERT INTO {table} ({', '.join(f'[{c}]' for c in cols)}) "
+                f"VALUES ({', '.join(['?'] * len(cols))})", _fast)
 
         # ── MySQL / MariaDB / StarRocks / Doris: driver-batched executemany ─
+        # pymysql collapses executemany INSERTs into one multi-row insert
         if dialect in ("mysql", "starrocks", "doris"):
-            eng = get_engine(connection_name)
-            if mode == "replace":
-                with eng.begin() as c:
-                    c.exec_driver_sql(f"TRUNCATE TABLE {table}")
-            cols = list(df.columns)
-            collist = ", ".join(f"`{c}`" for c in cols)
-            qs = ", ".join(["%s"] * len(cols))
-            rows = [tuple(None if pd.isna(v) else v for v in r)
-                    for r in df.itertuples(index=False, name=None)]
-            raw = eng.raw_connection()
-            try:
-                cur = raw.cursor()
-                # pymysql collapses executemany INSERTs into one multi-row insert
-                cur.executemany(f"INSERT INTO {table} ({collist}) VALUES ({qs})", rows)
-                raw.commit()
-            finally:
-                raw.close()
-            return n
+            return executemany_load(
+                f"INSERT INTO {table} ({', '.join(f'`{c}`' for c in cols)}) "
+                f"VALUES ({', '.join(['%s'] * len(cols))})")
 
         # ── Oracle: python-oracledb array binding (native bulk insert) ─────
         if dialect == "oracle":
-            eng = get_engine(connection_name)
-            if mode == "replace":
-                with eng.begin() as c:
-                    c.exec_driver_sql(f"TRUNCATE TABLE {table}")
-            cols = list(df.columns)
-            collist = ", ".join(f'"{c.upper()}"' for c in cols)
-            binds = ", ".join(f":{i+1}" for i in range(len(cols)))
-            rows = [tuple(None if pd.isna(v) else v for v in r)
-                    for r in df.itertuples(index=False, name=None)]
-            raw = eng.raw_connection()
-            try:
-                cur = raw.cursor()
-                cur.executemany(f"INSERT INTO {table} ({collist}) VALUES ({binds})", rows)
-                raw.commit()
-            finally:
-                raw.close()
-            return n
+            return executemany_load(
+                f"INSERT INTO {table} ({', '.join(chr(34) + c.upper() + chr(34) for c in cols)}) "
+                f"VALUES ({', '.join(f':{i + 1}' for i in range(len(cols)))})")
 
         # ── Fallback: batched multi-row to_sql (works for any dialect) ─────
-        eng = get_engine(connection_name)
-        if_exists = "replace" if mode == "replace" else "append"
-        df.to_sql(name, eng, schema=schema, if_exists=if_exists, index=False,
-                  method="multi", chunksize=kwargs.get("chunksize", 1000))
+        # replace empties the table with DELETE inside the load's transaction
+        # (DDL such as DROP commits immediately on some drivers, e.g. SQLite).
+        n = 0
+        with eng.begin() as conn:                    # one transaction for the whole load
+            if mode == "replace":
+                conn.exec_driver_sql(f"DELETE FROM {table}")
+            for batch in batches:
+                batch.to_pandas().to_sql(name, conn, schema=schema, if_exists="append", index=False,
+                                         method="multi", chunksize=kwargs.get("chunksize", 1000))
+                n += batch.num_rows
         return n
 
     ctx_out = {
@@ -740,6 +739,59 @@ def _to_arrow_table(df):
     if kind == "polars":
         return df.to_arrow()
     return pa.Table.from_pandas(df, preserve_index=False)
+
+
+def _arrow_batches(df, chunk_rows: int):
+    """Normalise input to (schema, iterator of RecordBatches) WITHOUT
+    materialising it: a Polars LazyFrame runs on the streaming engine batch by
+    batch, a DuckDB relation or any Arrow stream is read as it is produced.
+    Memory stays around one batch however large the data is (in-memory input
+    such as a pandas DataFrame is only sliced, never copied whole).
+
+    Every batch is at most `chunk_rows` rows and has exactly `schema`."""
+    import itertools
+    chunk_rows = max(1, int(chunk_rows))
+    kind = _frame_kind(df)
+    empty_schema = None
+    if kind == "arrow":
+        if isinstance(df, pa.RecordBatch):
+            df = pa.Table.from_batches([df])
+        if isinstance(df, pa.RecordBatchReader):
+            schema, it = df.schema, iter(df)
+        else:
+            schema, it = df.schema, iter(df.to_batches(max_chunksize=chunk_rows))
+    elif kind == "polars_lazy":
+        if hasattr(df, "collect_batches"):               # polars ≥ 1.33: streaming
+            it = (b for d in df.collect_batches(chunk_size=chunk_rows) for b in d.to_arrow().to_batches())
+            schema = None
+            empty_schema = lambda: df.head(0).collect().to_arrow().schema  # noqa: E731
+        else:
+            return _arrow_batches(_to_arrow_table(df), chunk_rows)
+    elif kind == "polars":
+        return _arrow_batches(df.to_arrow(), chunk_rows)
+    elif isinstance(df, pd.DataFrame):
+        schema = pa.Schema.from_pandas(df, preserve_index=False)
+        it = (pa.RecordBatch.from_pandas(df.iloc[i:i + chunk_rows], schema=schema, preserve_index=False)
+              for i in range(0, len(df), chunk_rows))
+    elif hasattr(df, "__arrow_c_stream__"):              # DuckDB relation, other Arrow producers
+        r = pa.RecordBatchReader.from_stream(df)
+        schema, it = r.schema, iter(r)
+    else:
+        return _arrow_batches(_to_arrow_table(df), chunk_rows)
+
+    if schema is None:                                   # take it from the first batch
+        first = next(it, None)
+        if first is None:
+            return empty_schema(), iter(())
+        schema, it = first.schema, itertools.chain([first], it)
+
+    def batches():
+        for b in it:
+            if b.schema != schema:                       # keep every batch on one schema
+                b = b.cast(schema)
+            for off in range(0, b.num_rows, chunk_rows):
+                yield b.slice(off, chunk_rows)
+    return schema, batches()
 
 
 def _to_pandas(df) -> pd.DataFrame:
@@ -892,7 +944,7 @@ def exec_processor(
 
 
 def exec_duckdb_processor(sql: str, frame_paths: list[str] | None = None,
-                          memory_limit: str | None = None):
+                          memory_limit: str | None = None, output_path: str | None = None):
     """
     DuckDB engine: run SQL over the upstream frames.
 
@@ -906,7 +958,9 @@ def exec_duckdb_processor(sql: str, frame_paths: list[str] | None = None,
     With NO upstream, the node is a SOURCE: write any SQL DuckDB understands,
     e.g. read_csv_auto('/data/*.csv') or read_parquet(...).
 
-    Returns a pyarrow Table.
+    With `output_path`, the result is streamed to that file batch by batch
+    (it never has to fit in memory) and _SUNK is returned; otherwise a
+    pyarrow Table.
     """
     import duckdb  # lazy — backend still starts if duckdb isn't installed
 
@@ -939,8 +993,12 @@ def exec_duckdb_processor(sql: str, frame_paths: list[str] | None = None,
             attached.append(name)
             con.register(name, _duckdb_scan(path))
 
+        if output_path:
+            from app.core.duckdb_arrow import query_to_ipc
+            n = query_to_ipc(con, sql, output_path)    # streamed to the cache file
+            return pa.table({}) if n is None else _SUNK
         from app.core.duckdb_arrow import query_to_arrow
-        return query_to_arrow(con, sql)            # Arrow, straight to cache
+        return query_to_arrow(con, sql)
     finally:
         con.close()
 
@@ -1138,6 +1196,7 @@ def _run_duckdb(ec: "EngineContext"):
     return exec_duckdb_processor(
         ec.code, ec.frame_paths,
         memory_limit=(ec.params or {}).get("memory_limit"),
+        output_path=ec.output_path,
     )
 
 
@@ -1505,9 +1564,11 @@ async def _execute_flow(
 
                 # The engine may have streamed its result straight to the cache
                 # file (e.g. polars sink_ipc) — nothing left to write.
+                # Count rows from the batch headers; the data itself is only
+                # loaded if a Persist below needs it.
                 if isinstance(result, _Sunk):
-                    out_table = load_frame_arrow(project_id, node_id)
-                    rows_out = out_table.num_rows
+                    out_table = None
+                    rows_out = get_frame_meta(project_id, node_id)["rows"]
                 # Store according to the engine's declared output type
                 elif spec.output_mode == "arrow":
                     out_table = result
@@ -1522,6 +1583,8 @@ async def _execute_flow(
                 pconf = data.get("persist") or {}
                 if pconf.get("enabled"):
                     from app.core import report_store
+                    if spec.output_mode == "arrow" and out_table is None:
+                        out_table = load_frame_arrow(project_id, node_id)
                     tname = pconf.get("table_name") or report_store.sanitize_table(label)
                     ptarget = pconf.get("target", "local")
                     out_arrow = out_table if spec.output_mode == "arrow" else pa.Table.from_pandas(df_out)

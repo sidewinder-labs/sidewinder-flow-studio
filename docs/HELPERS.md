@@ -137,14 +137,14 @@ fast_write(df, connection_name, table, mode='append', **kwargs)
 
 Bulk-load a DataFrame into a table, with the database's own fast loader.
 
-PostgreSQL COPY, ClickHouse native insert, SQL Server fast_executemany, MySQL/StarRocks/Doris and Oracle batched inserts, Iceberg via pyiceberg; a batched to_sql for anything else. Far faster than df.to_sql. Accepts pandas, Polars (also lazy) and Arrow. Creates the table if it is missing.
+PostgreSQL COPY, ClickHouse native insert, SQL Server fast_executemany, MySQL/StarRocks/Doris and Oracle batched inserts, Iceberg via pyiceberg; a batched to_sql for anything else. Far faster than df.to_sql. Accepts pandas, Polars (also lazy), Arrow and DuckDB relations. Creates the table if it is missing. Data is sent in batches as it is read: a Polars LazyFrame (e.g. pl.scan_csv) streams from its source to the database without ever being loaded whole, so loads larger than memory work. Each load is one transaction (Iceberg excepted), so a failure leaves the table as it was.
 
 - `df`: the data to write.
 - `connection_name`: the target connection's name.
 - `table`: the table, e.g. "public.orders".
 - `mode`: "append" (default) or "replace" (empties the table first).
 - `recreate`: True drops and recreates the table (replace keeps its definition).
-- `chunk_rows`: rows per batch for the streaming loaders.
+- `chunk_rows`: rows per batch (default 200k PostgreSQL, 100k ClickHouse, 50k others).
 
 **Returns:** int: the number of rows written
 

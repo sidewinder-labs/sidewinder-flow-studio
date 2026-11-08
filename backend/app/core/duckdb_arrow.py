@@ -25,3 +25,36 @@ def query_to_arrow(con, sql: str) -> pa.Table:
     """Run `sql` (one or more statements) and return the last result as Arrow."""
     rel = con.sql(sql)
     return pa.table({}) if rel is None else result_to_arrow(rel)
+
+
+def query_to_ipc(con, sql: str, path: str, batch_rows: int = 1_000_000) -> int | None:
+    """Run `sql` and stream the last result into an Arrow IPC file at `path`,
+    batch by batch, so the result never has to fit in memory. Returns the rows
+    written, or None when the SQL produced no result (DDL only).
+
+    Written to a temporary file and renamed, so a failed query never leaves a
+    half-written frame behind."""
+    import os
+    rel = con.sql(sql)
+    if rel is None:
+        return None
+    reader = None
+    for name in ("to_arrow_reader", "fetch_record_batch", "fetch_arrow_reader"):
+        fn = getattr(rel, name, None)
+        if fn is not None:
+            reader = fn(batch_rows)
+            break
+    if reader is None:                       # no streaming API: fetch, then write
+        reader = result_to_arrow(rel).to_reader()
+    tmp, n = f"{path}.tmp", 0
+    try:
+        with pa.ipc.new_file(tmp, reader.schema) as w:
+            for batch in reader:
+                w.write_batch(batch)
+                n += batch.num_rows
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+    return n

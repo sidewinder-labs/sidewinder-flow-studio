@@ -52,9 +52,10 @@ the helpers' own signatures and docstrings: edit those, then run
 - **polars**: `df` is a LazyFrame (scan of upstream IPC). Stay lazy; do NOT
   call `.collect()` — SFS collects (streaming). `pl` injected.
 - **duckdb**: code is SQL; upstream frame is table `df` (also `df2`, `df3`).
-  Query result becomes the output. SFS runs it with
-  `app/core/duckdb_arrow.query_to_arrow(con, sql)` (con.sql, no extra copy;
-  covers the DuckDB 1.x and 2.x Arrow APIs) — use it, not those calls.
+  Query result becomes the output, streamed to the cache with
+  `app/core/duckdb_arrow.query_to_ipc(con, sql, path)`; for an in-memory
+  table use `query_to_arrow(con, sql)` (both use con.sql, no extra copy, and
+  cover the DuckDB 1.x and 2.x Arrow APIs) — use them, not those calls.
   DuckDB nodes can't call Python helpers: to read a database, put a
   Database read node (or a fast_read node) before them.
 - **sql** (pushdown): SQL runs IN the target connection's warehouse
@@ -177,11 +178,19 @@ connection can query Iceberg but cannot bulk-load it). Any other dialect falls
 back to a batched `to_sql(method="multi", chunksize=1000)` automatically —
 still better than the row-by-row default.
 
-`fast_write` accepts pandas, Polars (eager or LazyFrame) and Arrow tables,
-creates the target table (and schema) if missing, and for PostgreSQL streams COPY
-in chunks. `mode="replace"` truncates an existing table; add `recreate=True` to
-drop and rebuild it when columns changed. It is a Python function: never emit it
-inside a `duckdb` or `sql` engine node — those execute SQL.
+`fast_write` accepts pandas, Polars (eager or LazyFrame), Arrow tables or
+streams, and DuckDB relations, and creates the target table (and schema) if
+missing. It **streams**: input is read in batches (`chunk_rows`) and each batch
+is sent as it arrives, so a LazyFrame goes from its source to the database
+without being collected — memory stays around one batch. Pass a LazyFrame
+(e.g. `pl.scan_csv(...)`) straight in; never `.collect()` it first. Each load is
+one transaction (Iceberg excepted): a failure leaves the table as it was.
+`mode="replace"` empties an existing table; add `recreate=True` to drop and
+rebuild it when columns changed. It is a Python function: never emit it inside a
+`duckdb` or `sql` engine node — those execute SQL. For large loads, write from a
+Polars node (a pandas node loads its whole input first), and after the write set
+`df` to something small (e.g. `df = pl.DataFrame({"rows": [n]})` with
+`n = fast_write(...)`) so the node doesn't copy the loaded data into the cache.
 
 Only use `df.to_sql(...)` directly for behaviour `fast_write` doesn't cover, and
 even then pass `method="multi"`. For anything more than a few
@@ -195,10 +204,11 @@ express upserts through pandas.
 
 - **Sequential by default**, parallel per layer when SFS_PARALLEL_BRANCHES=1.
   Never assume two nodes run in a particular order beyond dependency order.
-- **Every node boundary materialises a full frame** to the Arrow cache. Within a
-  node, DuckDB scans the cached file (column projection, spills to disk) and
-  Polars scans lazily, so both handle larger-than-RAM data; **pandas loads the
-  whole frame**. Generate Polars/DuckDB for large data, `sql`/`ibis` when it
+- **Every node boundary writes a full frame** to the Arrow cache on disk;
+  DuckDB and Polars nodes stream their result to it batch by batch, so it never
+  has to fit in memory. Within a node, DuckDB scans the cached file (column
+  projection, spills to disk) and Polars scans lazily, so both handle
+  larger-than-RAM data; **pandas loads the whole frame**. Generate Polars/DuckDB for large data, `sql`/`ibis` when it
   should stay in the warehouse.
 - **duckdb with no upstream is a source** — read_csv_auto / read_parquet etc.
 - **Scheduled retries re-run the whole flow**, not just the failed node. Generated

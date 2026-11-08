@@ -262,16 +262,28 @@ To load a DataFrame into a database, use the injected `fast_write` helper rather
 fast_write(df, "postgres_local", "public.forex", mode="replace")   # append | replace
 ```
 
-It accepts a pandas DataFrame, a Polars DataFrame **or LazyFrame**, or an Arrow
-table — so it works in pandas and Polars nodes alike. **Missing tables are created
-automatically** from the frame's schema (including the schema, e.g. `public`).
-`mode="replace"` empties an existing table but keeps its definition; pass
-`recreate=True` to drop and rebuild it when the columns have changed. For
-PostgreSQL the data streams to `COPY` in chunks, so large frames don't need the
-whole CSV in memory.
+It accepts a pandas DataFrame, a Polars DataFrame **or LazyFrame**, an Arrow
+table or a DuckDB relation — so it works in pandas and Polars nodes alike.
+**Missing tables are created automatically** from the frame's schema (including
+the schema, e.g. `public`). `mode="replace"` empties an existing table but keeps
+its definition; pass `recreate=True` to drop and rebuild it when the columns have
+changed. Each load is one transaction: if it fails halfway, the table is left as
+it was.
 
-> `fast_write` is Python — use it in a **pandas or Polars** node. A DuckDB node
-> runs SQL, so it can't call it; add a pandas or Polars node after the DuckDB one.
+**Loads of any size.** The data is sent in batches as it is read, so memory
+stays around one batch (`chunk_rows`, 200,000 rows for PostgreSQL) rather than
+the whole table. In a Polars node, hand `fast_write` a LazyFrame and the rows go
+straight from the files to the database without ever being loaded whole:
+
+```python
+df = pl.scan_csv("/data/imports/sales/*.csv")
+n = fast_write(df, "postgres_local", "public.sales", mode="replace")
+df = pl.DataFrame({"rows_written": [n]})   # keep the node's own output small
+```
+
+> `fast_write` is Python — use it in a **Polars** (or pandas) node. A DuckDB node
+> runs SQL, so it can't call it; add a Polars node after the DuckDB one. For large
+> loads prefer Polars: a pandas node loads its whole input into memory first.
 
 It automatically uses each database's native bulk loader — PostgreSQL `COPY`, ClickHouse native insert, SQL Server `fast_executemany`, MySQL/StarRocks/Doris batched insert, Oracle array binding, and Iceberg via pyiceberg — falling back to a batched insert for anything else. This is typically 10–100× faster than `to_sql`. For upserts, `fast_write` into a staging table then run your merge SQL via a SQL node.
 
