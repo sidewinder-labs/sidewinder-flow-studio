@@ -44,7 +44,7 @@ azure-identity==1.27.0
     # via adlfs
 azure-storage-blob==12.31.1
     # via adlfs
-cachetools==7.3.0
+cachetools==8.0.0
     # via pyiceberg
 certifi==2026.10.23
     # via
@@ -73,7 +73,7 @@ connectorx==0.4.6
     # via flow-studio-backend (backend/pyproject.toml)
 contourpy==1.4.0
     # via matplotlib
-croniter==6.2.4
+croniter==7.0.0
     # via flow-studio-backend (backend/pyproject.toml)
 cryptography==50.0.2
     # via
@@ -103,7 +103,7 @@ duckdb==2.0.0
     # via flow-studio-backend (backend/pyproject.toml)
 et-xmlfile==2.0.0
     # via openpyxl
-fastapi==0.162.0
+fastapi==0.162.2
     # via flow-studio-backend (backend/pyproject.toml)
 fonttools==4.68.0
     # via matplotlib
@@ -331,9 +331,9 @@ pyjwt==2.15.1
     # via
     #   databricks-sql-connector
     #   msal
-pymysql==1.2.3
+pymysql==1.2.4
     # via flow-studio-backend (backend/pyproject.toml)
-pyodbc==5.4.0
+pyodbc==5.5.0
     # via flow-studio-backend (backend/pyproject.toml)
 pyparsing==3.3.3
     # via
