@@ -14,9 +14,17 @@ updates:
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
     ignore:
-      # Its majors follow Vite's (6.x needs Vite 8): they come with a Vite
-      # upgrade, done by hand, not as an update that can't install.
+      # Majors that are migrations, done by hand rather than as updates
+      # that can't build: Vite and its React plugin move together (plugin
+      # 6.x needs Vite 8); Tailwind 4 changes the config and PostCSS plugin.
       - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      # Node's types follow the Node version CI and the image run (22).
+      - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     groups:
       # React and the libraries built on it move together, majors included:
