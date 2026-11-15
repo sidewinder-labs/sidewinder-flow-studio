@@ -1,11 +1,12 @@
 import { memo } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position } from '@xyflow/react'
+import type { DataNodeProps } from './nodeProps'
 import { Zap, Clock, ChevronRight } from 'lucide-react'
 import { useStore } from '@/store'
 import type { TriggerData } from '@/types'
 import { StatusIcon } from '@/components/ui/NodeStatus'
 
-export const TriggerNode = memo(({ id, data, selected }: NodeProps<TriggerData>) => {
+export const TriggerNode = memo(({ id, data, selected }: DataNodeProps<TriggerData>) => {
   const { execState, setSelectedNode } = useStore()
   const state = execState[id]
   const isSchedule = data.run_mode === 'schedule'

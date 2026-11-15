@@ -1,5 +1,6 @@
 import { memo } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position } from '@xyflow/react'
+import type { DataNodeProps } from './nodeProps'
 import { OctagonX, Table2, BarChart3, ChevronRight, ScanSearch } from 'lucide-react'
 import { useStore } from '@/store'
 import { StatusIcon, RowPill, DurationBadge } from '@/components/ui/NodeStatus'
@@ -7,7 +8,7 @@ import type { StopData, TableOutData, ChartOutData } from '@/types'
 
 // ── Stop Node ────────────────────────────────────────────────────────────────
 
-export const StopNode = memo(({ id, data, selected }: NodeProps<StopData>) => {
+export const StopNode = memo(({ id, data, selected }: DataNodeProps<StopData>) => {
   const { execState, setSelectedNode, setSidebarTab, inspectNode } = useStore()
   const state = execState[id]
 
@@ -62,7 +63,7 @@ StopNode.displayName = 'StopNode'
 
 // ── Table Output Node ─────────────────────────────────────────────────────────
 
-export const TableOutNode = memo(({ id, data, selected }: NodeProps<TableOutData>) => {
+export const TableOutNode = memo(({ id, data, selected }: DataNodeProps<TableOutData>) => {
   const { execState, setSelectedNode, setSidebarTab, inspectNode } = useStore()
   const state = execState[id]
 
@@ -104,7 +105,7 @@ TableOutNode.displayName = 'TableOutNode'
 
 // ── Profile Node ──────────────────────────────────────────────────────────────
 
-export const ProfileNode = memo(({ id, data, selected }: NodeProps<any>) => {
+export const ProfileNode = memo(({ id, data, selected }: DataNodeProps<any>) => {
   const { execState, inspectNode } = useStore()
   const state = execState[id]
 
@@ -142,7 +143,7 @@ ProfileNode.displayName = 'ProfileNode'
 
 // ── Chart Output Node ─────────────────────────────────────────────────────────
 
-export const ChartOutNode = memo(({ id, data, selected }: NodeProps<ChartOutData>) => {
+export const ChartOutNode = memo(({ id, data, selected }: DataNodeProps<ChartOutData>) => {
   const { execState, setSelectedNode, setSidebarTab, inspectNode } = useStore()
   const state = execState[id]
   const firstLine = data.code?.split('\n').find((l) => l.trim() && !l.trim().startsWith('#')) ?? ''

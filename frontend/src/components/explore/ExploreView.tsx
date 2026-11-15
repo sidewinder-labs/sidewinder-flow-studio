@@ -1,7 +1,7 @@
 // Explore — Graphic Walker in server-side computation mode over SFS sources.
 // Charts are compiled to SQL by the backend (/api/explore/query) and run where
 // the data lives; only the small result reaches the browser.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { GraphicWalker, chartToWorkflow, slateTheme } from '@kanaries/graphic-walker'
 import type { IDataQueryPayload, IMutField, IRow, IUIThemeConfig, VizSpecStore } from '@kanaries/graphic-walker'
 import Editor from '@monaco-editor/react'

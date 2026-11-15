@@ -3,7 +3,8 @@
  * the in-app Explore view; Report publishes an authored Streamlit dashboard.
  */
 import { memo } from 'react'
-import { Handle, Position, type NodeProps } from 'reactflow'
+import { Handle, Position } from '@xyflow/react'
+import type { DataNodeProps } from './nodeProps'
 import { Compass, LayoutDashboard, ExternalLink } from 'lucide-react'
 import { useStore } from '@/store'
 import { StatusIcon } from '@/components/ui/NodeStatus'
@@ -11,7 +12,7 @@ import type { ExploreData, ReportData } from '@/types'
 
 function ReportishNode({
   id, data, selected, kind,
-}: NodeProps<ExploreData | ReportData> & { kind: 'explore' | 'report' }) {
+}: DataNodeProps<ExploreData | ReportData> & { kind: 'explore' | 'report' }) {
   const { execState, setSelectedNode } = useStore()
   const state = execState[id]
   const isExplore = kind === 'explore'
@@ -68,9 +69,9 @@ export function openNodeInExplore(nodeId: string) {
   if (activeProject) openExplore({ kind: 'frame', project_id: activeProject.id, node_id: nodeId })
 }
 
-export const ExploreNode = memo((p: NodeProps<ExploreData>) => (
+export const ExploreNode = memo((p: DataNodeProps<ExploreData>) => (
   <ReportishNode {...p} kind="explore" />
 ))
-export const ReportNode = memo((p: NodeProps<ReportData>) => (
+export const ReportNode = memo((p: DataNodeProps<ReportData>) => (
   <ReportishNode {...p} kind="report" />
 ))

@@ -9,7 +9,8 @@
  * edges to follow (edge.sourceHandle === chosen label).
  */
 import { memo } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position } from '@xyflow/react'
+import type { DataNodeProps } from './nodeProps'
 import { GitBranch } from 'lucide-react'
 import { useStore } from '@/store'
 import { StatusIcon } from '@/components/ui/NodeStatus'
@@ -21,7 +22,7 @@ export interface RouterData {
   default_label?: string
 }
 
-export const RouterNode = memo(({ id, data, selected }: NodeProps<RouterData>) => {
+export const RouterNode = memo(({ id, data, selected }: DataNodeProps<RouterData>) => {
   const { execState, setSelectedNode } = useStore()
   const state = execState[id] as any
   const branches = (data.branches ?? []).filter((b) => b.label?.trim())

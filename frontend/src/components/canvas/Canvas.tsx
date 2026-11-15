@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useEffect, useState, useRef } from 'react'
-import ReactFlow, {
-  Background, Controls, MiniMap, BackgroundVariant,
+import {
+  ReactFlow, Background, Controls, MiniMap, BackgroundVariant,
   addEdge, useNodesState, useEdgesState, useReactFlow, ReactFlowProvider,
   type Connection, type Node, type Edge, type NodeChange, type EdgeChange,
-} from 'reactflow'
-import 'reactflow/dist/style.css'
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
 
 import { TriggerNode }   from '@/components/nodes/TriggerNode'
 import { ProcessorNode } from '@/components/nodes/ProcessorNode'
@@ -50,6 +50,30 @@ const NODE_DEFAULTS: Record<string, object> = {
   router:   { label: 'Router', branches: [{ label: 'match', expr: 'len(df) > 0' }], default_label: 'else' },
 }
 
+/** A saved node as React Flow 12 should see it. Files written by older
+ *  versions can hold React Flow 11's measured size as width/height (and
+ *  positionAbsolute); in 12, width/height fix a node's size, so a processor
+ *  would stop growing with its content. Only annotations have a size: the one
+ *  their user gave them, stored in `style`. */
+function fromSaved(n: any): Node {
+  const { width, height, positionAbsolute: _pa, measured: _m, ...rest } = n
+  if (n.type !== 'annotation') return rest
+  const w = n.style?.width ?? width, h = n.style?.height ?? height
+  return { ...rest, ...(w != null ? { width: w } : {}), ...(h != null ? { height: h } : {}) }
+}
+
+/** What is saved: React Flow's runtime fields (measured size, drag and
+ *  resize state) stay out of the flow file. The backend drops width/height as
+ *  canvas state, so an annotation's size — which React Flow 12's resizer sets
+ *  as width/height — is saved in `style`, as React Flow 11 kept it. */
+function toSaved(n: Node): Node {
+  const { measured: _m, dragging: _d, resizing: _r, ...rest } = n as any
+  if (n.type !== 'annotation' || (n.width == null && n.height == null)) return rest
+  return { ...rest, style: { ...n.style,
+    ...(n.width != null ? { width: n.width } : {}), ...(n.height != null ? { height: n.height } : {}) } }
+}
+const savedNodes = (ns: Node[]) => ns.map(toSaved)
+
 interface CanvasInnerProps { flowId: string }
 
 function CanvasInner({ flowId }: CanvasInnerProps) {
@@ -61,7 +85,7 @@ function CanvasInner({ flowId }: CanvasInnerProps) {
   } | null>(null)
 
   const flow = activeProject?.flows.find((f) => f.id === flowId)
-  const initialNodes = useMemo(() => (flow?.nodes ?? []) as Node[], [flowId])
+  const initialNodes = useMemo(() => ((flow?.nodes ?? []) as any[]).map(fromSaved), [flowId])
   const initialEdges = useMemo(() => (flow?.edges ?? []) as Edge[], [flowId])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
@@ -82,7 +106,7 @@ function CanvasInner({ flowId }: CanvasInnerProps) {
     registerCanvasCallbacks(
       setNodes,
       setEdges,
-      () => nodesRef.current,
+      () => savedNodes(nodesRef.current),
       () => edgesRef.current,
     )
     return () => unregisterCanvasCallbacks()
@@ -93,7 +117,7 @@ function CanvasInner({ flowId }: CanvasInnerProps) {
     onNodesChange(changes)
     setTimeout(() => {
       setNodes((current) => {
-        updateFlowCanvas(flowId, current, edgesRef.current)
+        updateFlowCanvas(flowId, savedNodes(current), edgesRef.current)
         return current
       })
     }, 0)
@@ -103,7 +127,7 @@ function CanvasInner({ flowId }: CanvasInnerProps) {
     onEdgesChange(changes)
     setTimeout(() => {
       setEdges((current) => {
-        updateFlowCanvas(flowId, nodesRef.current, current)
+        updateFlowCanvas(flowId, savedNodes(nodesRef.current), current)
         return current
       })
     }, 0)
@@ -112,7 +136,7 @@ function CanvasInner({ flowId }: CanvasInnerProps) {
   const onConnect = useCallback((c: Connection) => {
     setEdges((prev) => {
       const newEdges = addEdge({ ...c, type: 'default' }, prev)
-      updateFlowCanvas(flowId, nodesRef.current, newEdges)
+      updateFlowCanvas(flowId, savedNodes(nodesRef.current), newEdges)
       return newEdges
     })
   }, [flowId, setEdges, updateFlowCanvas])
@@ -136,12 +160,12 @@ function CanvasInner({ flowId }: CanvasInnerProps) {
       data: { ...(NODE_DEFAULTS[nodeType] ?? {}), ...customData },
       // Annotations render behind functional nodes and start with a usable size
       ...(isAnnotation
-        ? { zIndex: -1, width: 220, height: 90, style: { width: 220, height: 90 } }
+        ? { zIndex: -1, width: 220, height: 90 }
         : {}),
     }
     setNodes((prev) => {
       const newNodes = [...prev, newNode]
-      updateFlowCanvas(flowId, newNodes, edgesRef.current)
+      updateFlowCanvas(flowId, savedNodes(newNodes), edgesRef.current)
       return newNodes
     })
   }, [flowId, setNodes, updateFlowCanvas, screenToFlowPosition])
@@ -185,6 +209,7 @@ function CanvasInner({ flowId }: CanvasInnerProps) {
         fitView
         deleteKeyCode="Delete"
         proOptions={{ hideAttribution: true }}
+        colorMode="dark"
         className="bg-canvas-bg"
       >
         <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#1e2540" />

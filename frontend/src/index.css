@@ -103,3 +103,18 @@
 .help-prose td { @apply border-b border-canvas-border/50 py-1.5 pr-3 align-top; }
 .help-prose blockquote { @apply border-l-2 border-accent/50 pl-3 text-slate-400 my-3; }
 .help-prose hr { @apply border-canvas-border my-5; }
+
+/* React Flow 12's theme variables (the canvas runs in colorMode="dark"), set
+   to the app's palette. Outside @layer on purpose: Tailwind drops layered rules
+   whose class never appears in the source, and React Flow adds .react-flow at
+   runtime. */
+.react-flow {
+  --xy-background-color: #090c14;
+  --xy-minimap-background-color: #111827;
+  --xy-minimap-mask-background-color: rgba(9, 12, 20, 0.6);
+  --xy-controls-button-background-color: #111827;
+  --xy-controls-button-background-color-hover: #1a2235;
+  --xy-controls-button-color: #cbd5e1;
+  --xy-controls-button-color-hover: #f1f5f9;
+  --xy-controls-button-border-color: #1e2540;
+}

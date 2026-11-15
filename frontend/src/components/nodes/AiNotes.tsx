@@ -7,7 +7,8 @@
  *   ai_end   — structured load spec (connection + table + replace/append/custom)
  */
 import { memo } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position } from '@xyflow/react'
+import type { DataNodeProps } from './nodeProps'
 import { Sparkles, DatabaseZap, Wand2, HardDriveDownload } from 'lucide-react'
 import { useStore } from '@/store'
 
@@ -25,7 +26,7 @@ function Header({ icon, title }: { icon: React.ReactNode; title: string }) {
   )
 }
 
-export const AiStartNode = memo(({ id, data, selected }: NodeProps<any>) => {
+export const AiStartNode = memo(({ id, data, selected }: DataNodeProps<any>) => {
   const { setSelectedNode } = useStore()
   const mode = data.source_mode ?? 'sql'
   const summary =
@@ -46,7 +47,7 @@ export const AiStartNode = memo(({ id, data, selected }: NodeProps<any>) => {
 })
 AiStartNode.displayName = 'AiStartNode'
 
-export const AiStepNode = memo(({ id, data, selected }: NodeProps<any>) => {
+export const AiStepNode = memo(({ id, data, selected }: DataNodeProps<any>) => {
   const { setSelectedNode } = useStore()
   return (
     <div className={`${base} ${ring(selected)}`} onClick={() => setSelectedNode(id)}>
@@ -67,7 +68,7 @@ export const AiStepNode = memo(({ id, data, selected }: NodeProps<any>) => {
 })
 AiStepNode.displayName = 'AiStepNode'
 
-export const AiEndNode = memo(({ id, data, selected }: NodeProps<any>) => {
+export const AiEndNode = memo(({ id, data, selected }: DataNodeProps<any>) => {
   const { setSelectedNode } = useStore()
   const tmode = data.target_mode ?? 'db'
   const summary = tmode === 'db'

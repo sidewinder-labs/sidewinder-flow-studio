@@ -1,12 +1,13 @@
 import { memo } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position } from '@xyflow/react'
+import type { DataNodeProps } from './nodeProps'
 import { Code2, ChevronRight, ArrowRight } from 'lucide-react'
 import { useStore } from '@/store'
 import type { ProcessorData } from '@/types'
 import { StatusIcon, RowPill, DurationBadge } from '@/components/ui/NodeStatus'
 import { useEngines, paramSummary } from '@/utils/engines'
 
-export const ProcessorNode = memo(({ id, data, selected }: NodeProps<ProcessorData>) => {
+export const ProcessorNode = memo(({ id, data, selected }: DataNodeProps<ProcessorData>) => {
   const { execState, setSelectedNode } = useStore()
   const state = execState[id]
   const nodeEngine = (data as any).engine ?? 'pandas'

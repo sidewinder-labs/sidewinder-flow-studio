@@ -4,7 +4,8 @@
  * executes. Double-click to edit the text. Like NiFi's labels.
  */
 import { memo, useState, useRef, useEffect } from 'react'
-import { NodeResizer, type NodeProps } from 'reactflow'
+import { NodeResizer } from '@xyflow/react'
+import type { DataNodeProps } from './nodeProps'
 import { useStore } from '@/store'
 
 export interface AnnotationData {
@@ -23,7 +24,7 @@ export const ANNOTATION_COLORS: Record<string, { bg: string; border: string; tex
   rose:   { bg: 'rgba(136,19,55,0.22)',  border: 'rgba(244,63,94,0.5)',   text: '#fda4af' },
 }
 
-export const AnnotationNode = memo(({ id, data, selected }: NodeProps<AnnotationData>) => {
+export const AnnotationNode = memo(({ id, data, selected }: DataNodeProps<AnnotationData>) => {
   const { activeFlowId, updateNodeData } = useStore()
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(data.text ?? 'Note')

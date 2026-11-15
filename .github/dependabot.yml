@@ -14,7 +14,18 @@ updates:
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
     groups:
+      # React and the libraries built on it move together, majors included:
+      # a React major lands with its types and the libraries that support it.
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom",
+                   "@xyflow/react", "@monaco-editor/react",
+                   "lucide-react", "zustand", "echarts-for-react", "@vitejs/plugin-react"]
+      # Patterns, not "*": 0.x packages (@kanaries/graphic-walker,
+      # monaco-editor) are excluded, because for them a minor bump is a
+      # breaking change and gets its own PR.
       minor-and-patch:
+        patterns: ["*"]
+        exclude-patterns: ["@kanaries/graphic-walker", "monaco-editor"]
         update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /desktop

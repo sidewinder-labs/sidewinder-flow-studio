@@ -1,4 +1,4 @@
-import { EdgeProps, getBezierPath, EdgeLabelRenderer } from 'reactflow'
+import { EdgeProps, getBezierPath, EdgeLabelRenderer } from '@xyflow/react'
 import { useStore } from '@/store'
 
 export function FlowEdge({
