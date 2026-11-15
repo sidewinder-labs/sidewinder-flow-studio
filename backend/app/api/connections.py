@@ -29,9 +29,19 @@ async def list_connections(db: AsyncSession = Depends(get_db)):
     return [_out(c) for c in await connection_service.list_connections(db)]
 
 
+async def _name_taken(db: AsyncSession, name: str) -> HTTPException:
+    await db.rollback()
+    return HTTPException(409, f"A connection named '{name}' already exists. Choose another name, "
+                              "or edit the existing one.")
+
+
 @router.post("/", status_code=201)
 async def create_connection(body: ConnectionIn, db: AsyncSession = Depends(get_db)):
-    return _out(await connection_service.create_connection(db, body.model_dump()))
+    from sqlalchemy.exc import IntegrityError
+    try:
+        return _out(await connection_service.create_connection(db, body.model_dump()))
+    except IntegrityError:
+        raise await _name_taken(db, body.name) from None
 
 
 # ── Export / import (before /{cid}) ──────────────────────────────────────────
@@ -81,7 +91,11 @@ class ConnectionUpdate(BaseModel):
 
 @router.put("/{cid}")
 async def update_connection(cid: str, body: ConnectionUpdate, db: AsyncSession = Depends(get_db)):
-    c = await connection_service.update_connection(db, cid, body.model_dump(exclude_unset=True))
+    from sqlalchemy.exc import IntegrityError
+    try:
+        c = await connection_service.update_connection(db, cid, body.model_dump(exclude_unset=True))
+    except IntegrityError:
+        raise await _name_taken(db, body.name or "") from None
     if not c:
         raise HTTPException(404, "Not found")
     return _out(c)

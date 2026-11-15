@@ -125,3 +125,39 @@ def test_get_engine_on_a_plugin_connection_explains(env):
     from app.models.connection import Connection
     m = connection_maps([Connection(id="1", name="plan", dialect="acme", extra_params=None)])
     assert "not a SQL database" in m["urls"]["plan"] and "plan" not in m["broken"]
+
+
+def test_a_test_that_hangs_does_not_freeze_the_backend(env, monkeypatch):
+    """A database behind a firewall that drops packets makes a driver wait for
+    minutes. Meanwhile every other request must still be answered, and the
+    test must end with a message."""
+    import threading, time
+    from app.services import connection_service as cs
+    monkeypatch.setattr(cs, "TEST_TIMEOUT_S", 1.5)
+    release = threading.Event()
+    registry.register_connection_type(dialect="slowdb", label="Slow", fields=[],
+                                      test=lambda f: (release.wait(10), (True, "late"))[1])
+    try:
+        cid = env.post("/api/connections/", json={"name": "slow", "dialect": "slowdb", "extra_params": {}}).json()["id"]
+        out = {}
+        t = threading.Thread(target=lambda: out.update(env.post(f"/api/connections/{cid}/test").json()))
+        t.start(); time.sleep(0.3)
+        t0 = time.monotonic()
+        assert [c["name"] for c in env.get("/api/connections/").json()] == ["slow"]
+        assert time.monotonic() - t0 < 0.5             # answered while the test still waits
+        t.join(5)
+        assert out["ok"] is False and "No answer" in out["error"]
+    finally:
+        release.set()
+        registry.CONNECTION_TYPES.pop("slowdb", None)
+
+
+def test_a_taken_name_is_refused_with_a_message(env):
+    first = _create(env)
+    r = env.post("/api/connections/", json={"name": "plan", "dialect": "postgresql", "host": "h"})
+    assert r.status_code == 409 and "already exists" in r.json()["detail"]
+    other = env.post("/api/connections/", json={"name": "other", "dialect": "postgresql", "host": "h"}).json()
+    r = env.put(f"/api/connections/{other['id']}", json={"name": "plan"})
+    assert r.status_code == 409 and "'plan' already exists" in r.json()["detail"]
+    assert sorted(c["name"] for c in env.get("/api/connections/").json()) == ["other", "plan"]
+    assert first["name"] == "plan"

@@ -424,38 +424,68 @@ async def update_connection(db: AsyncSession, conn_id: str, data: dict) -> Conne
     return conn
 
 
+TEST_TIMEOUT_S = 20
+
+
 async def test_connection(conn: Connection) -> dict:
+    """Try the connection. The attempt runs in a worker thread with an overall
+    time limit: drivers block while connecting, and a host that silently drops
+    packets (a firewall) would otherwise hold the whole backend until the
+    network gives up."""
+    import asyncio
+
+    from fastapi.concurrency import run_in_threadpool
+
     if needs_credentials(conn):
         return {"ok": False, "error": connection_maps([conn])["broken"][conn.name]}
     from app.engine.registry import connection_type
     ctype = connection_type(conn.dialect)
+    # Everything read from the ORM object is read here, in the request: the
+    # worker thread only gets plain values.
     if ctype is not None:
         if ctype["test"] is None:
             return {"ok": False, "error": f"{ctype['label']} connections have no test."}
-        from fastapi.concurrency import run_in_threadpool
+        work = lambda f=_fields(conn, ctype): _plugin_test(ctype, f)        # noqa: E731
+    elif conn.dialect == "adls":
+        work = lambda o=get_storage_options(conn), d=conn.database or "": _adls_test(o, d)  # noqa: E731
+    else:
         try:
-            ok, message = await run_in_threadpool(ctype["test"], _fields(conn, ctype))
-        except Exception as exc:                       # a plugin's test must not 500 the button
-            ok, message = False, f"{type(exc).__name__}: {exc}"
-        return {"ok": bool(ok), "error": None if ok else str(message), "message": str(message or "")}
-    if conn.dialect == "adls":
-        try:
-            import adlfs
-            fs = adlfs.AzureBlobFileSystem(**get_storage_options(conn))
-            fs.ls(conn.database or "")
-            return {"ok": True, "error": None}
-        except ImportError:
-            return {"ok": False, "error": "Azure Data Lake support (adlfs) isn't installed. It is in the Docker image when SFS_EXTRAS includes adls or all-connectors; the desktop app doesn't include it."}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
-    import sqlalchemy as sa
+            url, ca = build_url(conn), get_connect_args(conn)
+        except CredentialError as exc:
+            # Report the real cause instead of a 500 from the Test button
+            return {"ok": False, "error": f"Connection '{conn.name}': {exc}"}
+        work = lambda: _sql_test(url, ca)                                    # noqa: E731
     try:
-        url = build_url(conn)
-        ca = get_connect_args(conn)
-    except CredentialError as exc:
-        # Report the real cause instead of a 500 from the Test button
-        return {"ok": False, "error": f"Connection '{conn.name}': {exc}"}
+        return await asyncio.wait_for(run_in_threadpool(work), TEST_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        where = f"{conn.host}:{conn.port}" if conn.host else conn.name
+        hint = (" SFS runs in Docker here: a firewall on this machine can block its traffic to "
+                "host.docker.internal." if (conn.host or "") == "host.docker.internal" else "")
+        return {"ok": False, "error": f"No answer from {where} within {TEST_TIMEOUT_S} s. Check that the "
+                                      f"database is running and that SFS can reach it.{hint}"}
+
+
+def _plugin_test(ctype: dict, fields: dict) -> dict:
+    try:
+        ok, message = ctype["test"](fields)
+    except Exception as exc:                           # a plugin's test must not 500 the button
+        ok, message = False, f"{type(exc).__name__}: {exc}"
+    return {"ok": bool(ok), "error": None if ok else str(message), "message": str(message or "")}
+
+
+def _adls_test(options: dict, path: str) -> dict:
+    try:
+        import adlfs
+        adlfs.AzureBlobFileSystem(**options).ls(path)
+        return {"ok": True, "error": None}
+    except ImportError:
+        return {"ok": False, "error": "Azure Data Lake support (adlfs) isn't installed. It is in the Docker image when SFS_EXTRAS includes adls or all-connectors; the desktop app doesn't include it."}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _sql_test(url, ca: dict) -> dict:
+    import sqlalchemy as sa
     try:
         # Some dialects reject connect_timeout — retry without it.
         # Merge dialect-specific connect_args (e.g. Trino auth/verify/scheme).
