@@ -18,7 +18,7 @@
     "echarts": "^5.5.1",
     "echarts-for-react": "^3.0.6",
     "lucide-react": "^1.73.0",
-    "marked": "^15.0.12",
+    "marked": "^18.2.0",
     "monaco-editor": "^0.55.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
