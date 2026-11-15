@@ -13,13 +13,18 @@ updates:
     directory: /frontend
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      # Its majors follow Vite's (6.x needs Vite 8): they come with a Vite
+      # upgrade, done by hand, not as an update that can't install.
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
     groups:
       # React and the libraries built on it move together, majors included:
       # a React major lands with its types and the libraries that support it.
       react:
         patterns: ["react", "react-dom", "@types/react", "@types/react-dom",
                    "@xyflow/react", "@monaco-editor/react",
-                   "lucide-react", "zustand", "echarts-for-react", "@vitejs/plugin-react"]
+                   "lucide-react", "zustand", "echarts-for-react"]
       # Patterns, not "*": 0.x packages (@kanaries/graphic-walker,
       # monaco-editor) are excluded, because for them a minor bump is a
       # breaking change and gets its own PR.
