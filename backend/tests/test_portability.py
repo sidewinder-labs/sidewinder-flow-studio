@@ -120,14 +120,17 @@ def test_secret_keys_definition():
 def test_secret_extras_are_encrypted_hidden_and_kept_on_edit(env):
     c = env.post("/api/connections/", json={
         "name": "lake", "dialect": "adls", "host": "acct", "password": "acctkey",
-        "extra_params": {"sas_token": "sv=SECRET", "tenant_id": "t1", "client_secret": "CS"}}).json()
+        "extra_params": {"sas_token": "sv=SECRET!", "tenant_id": "t1", "client_secret": "the CS!"}}).json()
     raw = env.raw_db("SELECT extra_params, password_enc FROM connections")[0]
-    assert "SECRET" not in raw[0] and "CS" not in raw[0] and '"tenant_id": "t1"' in raw[0]
+    # '!' and ' ' never occur in ciphertext, so these can't match by chance
+    assert "SECRET!" not in raw[0] and "the CS!" not in raw[0]
+    stored = json.loads(raw[0])
+    assert stored["tenant_id"] == "t1" and set(stored["sas_token"]) == {"$enc"} and set(stored["client_secret"]) == {"$enc"}
     assert "acctkey" not in (raw[1] or "")
     listed = env.get("/api/connections/").json()[0]
     assert listed["extra_params"] == {"tenant_id": "t1"}
     assert listed["secret_extras"] == ["client_secret", "sas_token"] and listed["has_password"]
-    assert "SECRET" not in json.dumps(listed) and "acctkey" not in json.dumps(listed)
+    assert "SECRET!" not in json.dumps(listed) and "acctkey" not in json.dumps(listed)
 
     # The form sends only what it shows: secrets not sent are kept; a sent one replaces; cleared ones go.
     env.put(f"/api/connections/{c['id']}", json={"extra_params": {"tenant_id": "t2", "sas_token": "sv=NEW"},

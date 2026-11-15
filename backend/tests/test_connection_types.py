@@ -62,7 +62,7 @@ def env(tmp_path, monkeypatch):
 
 def _create(env, **extra):
     return env.post("/api/connections/", json={"name": "plan", "dialect": "acme", "extra_params": {
-        "address": "tm1.example", "port": "8010", "ssl": False, "token": "T0K3N", "client_pass_phrase": "PP", **extra}}).json()
+        "address": "tm1.example", "port": "8010", "ssl": False, "token": "T0K3N", "client_pass_phrase": "P P!", **extra}}).json()
 
 
 def test_type_is_listed_without_its_test_function(env):
@@ -81,13 +81,13 @@ def test_bad_field_type_and_dialect_rejected():
 def test_secret_fields_encrypted_hidden_and_kept_on_edit(env):
     c = _create(env)
     raw = env.raw("SELECT extra_params FROM connections")[0][0]
-    assert "T0K3N" not in raw and "PP" not in raw and '"address": "tm1.example"' in raw
+    assert "T0K3N" not in raw and "P P!" not in raw and '"address": "tm1.example"' in raw
     assert c["secret_extras"] == ["client_pass_phrase", "token"]             # 'pass_phrase' isn't a secret word: declared
     assert "T0K3N" not in json.dumps(c) and c["extra_params"]["address"] == "tm1.example"
     env.put(f"/api/connections/{c['id']}", json={"extra_params": {"address": "tm1b.example", "port": 9000, "ssl": True}})
     f = registry.RegistryAPI.get_connection("plan", "acme")
     assert f == {"name": "plan", "dialect": "acme", "address": "tm1b.example", "port": 9000, "ssl": True,
-                 "mode": "a", "token": "T0K3N", "client_pass_phrase": "PP"}
+                 "mode": "a", "token": "T0K3N", "client_pass_phrase": "P P!"}
 
 
 def test_test_button_calls_the_plugin_with_decrypted_fields(env):
@@ -110,7 +110,7 @@ def test_get_connection_errors_name_the_problem(env):
 def test_export_strips_secret_fields_and_import_needs_them(env):
     _create(env)
     b = env.get("/api/connections/export").json()
-    assert "T0K3N" not in json.dumps(b) and "PP" not in json.dumps(b)
+    assert "T0K3N" not in json.dumps(b) and "P P!" not in json.dumps(b)
     assert b["connections"][0]["requires"] == {"password": False, "extras": ["client_pass_phrase", "token"]}
     env.delete(f"/api/connections/{env.get('/api/connections/').json()[0]['id']}")
     env.post("/api/connections/import", json={"bundle": b})
