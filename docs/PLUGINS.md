@@ -292,7 +292,9 @@ a `to_code(params, inputs) -> str` and the processor panel gains two buttons:
 `params` are the node's declared params with defaults applied, exactly as
 `run` receives them in `ec.params`. `inputs` are the upstream frames from the
 last run (pandas DataFrames, in no guaranteed order, possibly empty if the flow
-hasn't run): use them only when the code depends on what arrives, and raise
+hasn't run; when they wouldn't fit in memory, their first 10,000 rows): use them
+only when the code depends on what arrives — typically columns, or a small result
+such as a fit table — and raise
 `ValueError` with a message the user can act on ("Run the flow once first…")
 when it can't be generated yet.
 

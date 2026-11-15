@@ -13,6 +13,7 @@ import { useStore } from '@/store'
 import { api } from '@/utils/api'
 import { EngineParams } from './EngineParams'
 import { ViewAsPython } from './ViewAsPython'
+import { InputSize } from './InputSize'
 import { AgentBox } from './AgentBox'
 import Editor from '@monaco-editor/react'
 import { RefreshCw, Save, BookmarkPlus, Compass, HelpCircle } from 'lucide-react'
@@ -535,6 +536,9 @@ export function ProcessorPanel({ nodeId }: { nodeId: string }) {
           }}
         />
       )}
+
+      <InputSize parentIds={((flow?.edges as any[]) ?? []).filter((e) => e.target === nodeId).map((e) => e.source)}
+                 loadsWhole={(engineSpec?.input_mode ?? 'pandas') === 'pandas'} />
 
       <div className="flex-1 flex flex-col min-h-[360px]">
         {inputVars.length > 0 && (

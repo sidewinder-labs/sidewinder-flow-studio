@@ -239,7 +239,7 @@ export interface RunRow {
   flow_id: string
   flow_name?: string
   trigger: 'manual' | 'schedule'
-  status: 'running' | 'ok' | 'error' | 'stopped'
+  status: 'running' | 'ok' | 'error' | 'stopped' | 'crashed'   // crashed: SFS died mid-run
   attempt: number
   started_at?: string
   duration_ms?: number

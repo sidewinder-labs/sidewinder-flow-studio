@@ -48,11 +48,11 @@ async def frame_columns(project_id: str, node_id: str):
     dropdown instead of a free-text box. Returns an empty list if the node has
     not run yet — callers should degrade to a text input.
     """
-    from app.core.frame_cache import has_frame, load_frame
+    from app.core.frame_cache import has_frame, load_frame_head
     if not has_frame(project_id, node_id):
         return {"columns": [], "ran": False}
     try:
-        df = load_frame(project_id, node_id)
+        df = load_frame_head(project_id, node_id, 1)      # the dtypes, not the whole frame
         return {
             "ran": True,
             "columns": [{"name": str(c), "dtype": str(df[c].dtype)} for c in df.columns],

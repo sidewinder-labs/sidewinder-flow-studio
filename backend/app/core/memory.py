@@ -68,6 +68,32 @@ def total_bytes() -> int | None:
     return total
 
 
+def available_bytes() -> int | None:
+    """Memory free for SFS to use now: the OS's available memory, or what the
+    container's limit leaves, whichever is lower."""
+    avail = None
+    if sys.platform.startswith("linux"):
+        try:
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                if line.startswith("MemAvailable:"):
+                    avail = int(line.split()[1]) * 1024
+                    break
+        except OSError:
+            pass
+        limit = _cgroup_limit()
+        if limit:
+            for f in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
+                try:
+                    room = limit - int(Path(f).read_text().strip())
+                    avail = room if avail is None else min(avail, room)
+                    break
+                except (OSError, ValueError):
+                    continue
+    elif sys.platform == "win32":
+        avail = _win_available()
+    return avail
+
+
 def _cgroup_limit() -> int | None:
     for f in ("/sys/fs/cgroup/memory.max",                      # cgroup v2
               "/sys/fs/cgroup/memory/memory.limit_in_bytes"):   # cgroup v1
@@ -122,6 +148,14 @@ def _win_private_bytes() -> int | None:
 
 
 def _win_total() -> int | None:
+    return _win_status("ullTotalPhys")
+
+
+def _win_available() -> int | None:
+    return _win_status("ullAvailPhys")
+
+
+def _win_status(field: str) -> int | None:
     try:
         import ctypes
 
@@ -134,7 +168,7 @@ def _win_total() -> int | None:
         m = MS()
         m.dwLength = ctypes.sizeof(MS)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
-            return int(m.ullTotalPhys)
+            return int(getattr(m, field))
     except Exception:
         pass
     return None

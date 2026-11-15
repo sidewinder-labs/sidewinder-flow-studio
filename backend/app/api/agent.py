@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.frame_cache import has_frame, load_frame
+from app.core.frame_cache import has_frame, load_frame_head
 from app.services.agent_service import generate_code
 from app.services import agent_provider_service as provider_svc
 
@@ -28,7 +28,7 @@ async def agent_generate(body: AgentRequest, db: AsyncSession = Depends(get_db))
 
     if body.upstream_node_id and has_frame(body.project_id, body.upstream_node_id):
         try:
-            df = load_frame(body.project_id, body.upstream_node_id)
+            df = load_frame_head(body.project_id, body.upstream_node_id, 3)   # all it uses
             schema = [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns]
             import json
             sample = json.loads(df.head(3).to_json(orient="records", date_format="iso", default_handler=str))

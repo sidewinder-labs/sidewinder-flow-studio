@@ -29,10 +29,48 @@ from app.core import memory
 log = logging.getLogger("sfs.memory")
 INTERVAL_S = 0.25
 STOP_FILE = "memory_stop.json"
+HEARTBEAT_FILE = "running.json"         # live runs, their nodes and memory; gone when idle
 
 
 class MemoryBudgetExceeded(RuntimeError):
     pass
+
+
+class InputTooLarge(MemoryBudgetExceeded):
+    """A pandas node's input won't fit: refused before anything is loaded."""
+
+
+def room() -> tuple[int | None, str]:
+    """How much more memory a node may take now, and what limits it."""
+    used = memory.process_bytes() or 0
+    avail = memory.available_bytes()
+    budget = budget_bytes()
+    options = []
+    if budget:
+        options.append((budget - used, "left in the memory budget"))
+    if avail is not None:
+        options.append((avail, "free on this machine"))
+    if not options:
+        return None, ""
+    n, why = min(options, key=lambda o: o[0])
+    return max(n, 0), why
+
+
+def check_pandas_load(load_bytes: int, rows: int, label: str) -> None:
+    """Refuse a pandas node whose input can't fit, before loading it. Off
+    together with the budget (SFS_MEMORY_BUDGET=off)."""
+    from app.core import app_settings
+    if app_settings.get("SFS_MEMORY_BUDGET") == "off":
+        return
+    free, why = room()
+    if free is None or load_bytes <= free:
+        return
+    raise InputTooLarge(
+        f"Not run: loading this node's input ({rows:,} rows) into pandas needs about "
+        f"{memory.fmt_size(load_bytes)}, and only {memory.fmt_size(free)} is {why}. "
+        "A pandas node loads its whole input into memory. Use a Polars or DuckDB node instead: "
+        "both work on data larger than memory (Help → The five engines). "
+        "Or raise the memory budget in Meta → Settings.")
 
 
 _lock = threading.Lock()
@@ -97,19 +135,24 @@ def _message(used: int, budget: int) -> str:
             "or raise the budget in Meta → Settings.")
 
 
+def _interrupt_duckdb() -> None:
+    with _lock:
+        cons = list(_duckdb)
+    for con in cons:
+        try:
+            con.interrupt()
+        except Exception:
+            pass
+
+
 def _trip(used: int, budget: int) -> None:
     global _exceeded
     with _lock:
         if _exceeded:
             return
         _exceeded = _message(used, budget)
-        cons = list(_duckdb)
     log.warning(_exceeded)
-    for con in cons:
-        try:
-            con.interrupt()
-        except Exception:
-            pass
+    _interrupt_duckdb()
 
 
 def _hard_stop(used: int, budget: int) -> None:
@@ -137,15 +180,44 @@ def _hard_stop(used: int, budget: int) -> None:
     os._exit(restart.EXIT_CODE)
 
 
+def _heartbeat(used, budget) -> None:
+    """Record what is running and the memory in use, so a crash the guard
+    didn't see coming (the OS killing SFS) can be explained at the next start."""
+    from app.engine import active_runs
+    try:
+        from app.packs.store import data_dir
+        p = data_dir() / HEARTBEAT_FILE
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"at": datetime.now(UTC).isoformat(), "used": used, "budget": budget,
+                                   "total": memory.total_bytes(), "runs": active_runs.snapshot()}))
+        tmp.replace(p)
+    except Exception:
+        pass
+
+
+def _clear_heartbeat() -> None:
+    try:
+        from app.packs.store import data_dir
+        (data_dir() / HEARTBEAT_FILE).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def _watch() -> None:
     global _exceeded, _hard_logged
     from app.engine import active_runs
     was_running = False
+    last_beat = 0.0
     while True:
         running = active_runs.any_running()
         if running:
             was_running = True
             budget, used = budget_bytes(), memory.process_bytes()
+            if time.monotonic() - last_beat >= 1.0:
+                _heartbeat(used, budget)
+                last_beat = time.monotonic()
+            if _exceeded:                        # again each time: a query that was only
+                _interrupt_duckdb()              # about to start when it tripped is caught too
             if budget and used is not None:
                 if used > hard_limit(budget) and _exceeded:
                     _hard_stop(used, budget)
@@ -155,6 +227,7 @@ def _watch() -> None:
         else:
             if was_running:                      # runs ended: hand memory back, reset
                 was_running = False
+                _clear_heartbeat()
                 memory.release()
                 with _lock:
                     _exceeded = None
@@ -177,5 +250,17 @@ def take_stop_note() -> dict | None:
         note = json.loads(p.read_text())
         p.unlink(missing_ok=True)
         return note
+    except (OSError, ValueError):
+        return None
+
+
+def take_heartbeat() -> dict | None:
+    """The last heartbeat of the previous process, removed once read (at startup)."""
+    try:
+        from app.packs.store import data_dir
+        p = data_dir() / HEARTBEAT_FILE
+        beat = json.loads(p.read_text())
+        p.unlink(missing_ok=True)
+        return beat
     except (OSError, ValueError):
         return None

@@ -286,6 +286,7 @@ def list_engines() -> list[dict]:
             "tier": spec.tier,
             "language": spec.language,
             "needs_target_connection": spec.needs_target_connection,
+            "input_mode": spec.input_mode,             # "pandas": loads its inputs whole
             "params": list(spec.params),
             "hint": spec.hint,
             "has_to_code": spec.to_code is not None,

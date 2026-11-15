@@ -151,6 +151,19 @@ queries are interrupted, `fast_write` and streamed reads stop between batches; a
 pandas node in the middle of one call can't be interrupted, so if memory keeps
 climbing SFS restarts itself (Docker, desktop app) and records why.
 
+**pandas nodes are checked before they run.** A pandas node loads its whole input,
+so before loading it SFS estimates the memory that takes (from the cached input:
+its size, and a sample converted to pandas) and compares it with what is free and
+left in the budget. If it won't fit, the node stops at once with the numbers and
+the advice to use a Polars or DuckDB node — instead of filling memory first. The
+node panel shows the input's rows and that estimate before you run, with a
+warning when it's too large. (Turning the budget off turns this check off too.)
+
+**Crashes are named.** If SFS stops in the middle of a run anyway — the system
+killing it for lack of memory, a crash, a restart — the run shows as **crashed**
+in Meta → Runs, with the node it was running and, when memory was nearly full,
+that it most likely ran out of memory.
+
 ### Parallel execution
 
 By default nodes run one at a time in dependency order. Turn on **Run
@@ -279,8 +292,11 @@ table or a DuckDB relation — so it works in pandas and Polars nodes alike.
 **Missing tables are created automatically** from the frame's schema (including
 the schema, e.g. `public`). `mode="replace"` empties an existing table but keeps
 its definition; pass `recreate=True` to drop and rebuild it when the columns have
-changed. Each load is one transaction: if it fails halfway, the table is left as
-it was.
+changed. Where the database has transactions (PostgreSQL, SQL Server,
+MySQL/MariaDB with InnoDB, Oracle, SQLite), each load is one: if it fails halfway,
+the table is left as it was. ClickHouse, StarRocks, Doris and Iceberg have no
+transactions, so a failed load there can leave part of the rows: load into a
+staging table and swap it in (for example ClickHouse `EXCHANGE TABLES`).
 
 **Loads of any size.** The data is sent in batches as it is read, so memory
 stays around one batch (`chunk_rows`, 200,000 rows for PostgreSQL) rather than

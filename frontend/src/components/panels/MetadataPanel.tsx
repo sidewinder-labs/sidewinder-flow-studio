@@ -19,9 +19,9 @@ function RunsPanel() {
   const load = async () => { try { setRuns(await api.runs.list(activeProject?.id)) } catch {} }
   _useEffect(() => { load() }, [activeProject?.id])
 
-  const color = (s: string) => s === 'ok' ? 'text-status-ok' : s === 'error' ? 'text-status-error'
+  const color = (s: string) => s === 'ok' ? 'text-status-ok' : s === 'error' || s === 'crashed' ? 'text-status-error'
     : s === 'stopped' ? 'text-amber-400' : 'text-muted'
-  const icon = (s: string) => s === 'ok' ? '✓' : s === 'error' ? '✗' : s === 'stopped' ? '⊘' : '⋯'
+  const icon = (s: string) => s === 'ok' ? '✓' : s === 'error' ? '✗' : s === 'crashed' ? '⚠' : s === 'stopped' ? '⊘' : '⋯'
 
   return (
     <div className="space-y-2">
@@ -43,7 +43,7 @@ function RunsPanel() {
             {r.duration_ms != null && <span>· {(r.duration_ms/1000).toFixed(1)}s</span>}
             {r.nodes_ok != null && <span>· {r.nodes_ok}✓{r.nodes_error ? ` ${r.nodes_error}✗` : ''}</span>}
           </div>
-          {r.error && <div className="text-red-300 bg-red-950/30 rounded p-1 break-words">{r.error.slice(0,200)}</div>}
+          {r.error && <div className="text-red-300 bg-red-950/30 rounded p-1 break-words whitespace-pre-wrap max-h-40 overflow-auto">{r.error}</div>}
         </div>
       ))}
     </div>

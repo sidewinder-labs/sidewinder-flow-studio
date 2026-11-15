@@ -292,6 +292,10 @@ export const api = {
       ),
     clearCache: (project_id: string, flow_id: string) =>
       req<void>(`/execute/clear-cache?project_id=${project_id}&flow_id=${flow_id}`, { method: 'POST' }),
+    estimate: (project_id: string, node_ids: string[]) =>
+      req<{ rows: number; load_bytes: number; room: number | null; room_why: string;
+            inputs: { node_id: string; rows: number; load_bytes: number }[] }>(
+        `/execute/estimate/${encodeURIComponent(project_id)}?node_ids=${node_ids.map(encodeURIComponent).join(',')}`),
     running: (project_id: string) =>
       req<{ flow_ids: string[] }>(`/execute/running?project_id=${encodeURIComponent(project_id)}`),
   },

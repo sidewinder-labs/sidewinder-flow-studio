@@ -144,3 +144,52 @@ def delete_node_frames(project_id: str, node_ids) -> int:
             f.unlink()
             n += 1
     return n
+
+
+_ESTIMATES: dict[tuple[str, float, int], dict] = {}
+SAMPLE_ROWS = 50_000
+
+
+def pandas_estimate(flow_id: str, node_id: str) -> dict | None:
+    """What loading this cached frame into pandas takes, without loading it:
+    {rows, columns, arrow_bytes, pandas_bytes, load_bytes}.
+
+    arrow_bytes comes from the batch headers (memory-mapped, nothing copied);
+    pandas_bytes from converting a sample of rows and scaling it up, so it
+    reflects how this pandas version stores each type (pandas 3 keeps text
+    Arrow-backed; older versions make a Python object per value). Loading
+    holds both for a moment, so load_bytes is their sum — slightly more than
+    the real peak, where some columns convert without a copy."""
+    path = _cache_path(flow_id, node_id)
+    if not path.exists():
+        return None
+    st = path.stat()
+    key = (str(path), st.st_mtime, st.st_size)
+    if key in _ESTIMATES:
+        return _ESTIMATES[key]
+    with pa.memory_map(str(path), "rb") as src:
+        reader = ipc.open_file(src)
+        rows = arrow_bytes = 0
+        sample, sampled = [], 0
+        for i in range(reader.num_record_batches):
+            b = reader.get_batch(i)
+            rows += b.num_rows
+            arrow_bytes += b.nbytes
+            if sampled < SAMPLE_ROWS and b.num_rows:
+                take = b.slice(0, SAMPLE_ROWS - sampled)
+                sample.append(take)
+                sampled += take.num_rows
+        columns = len(reader.schema)
+        if sampled:
+            df = pa.Table.from_batches(sample, schema=reader.schema).to_pandas()
+            per_row = float(df.memory_usage(deep=True, index=False).sum()) / sampled
+            del df
+        else:
+            per_row = 0.0
+    pandas_bytes = int(per_row * rows)
+    est = {"rows": rows, "columns": columns, "arrow_bytes": arrow_bytes,
+           "pandas_bytes": pandas_bytes, "load_bytes": arrow_bytes + pandas_bytes}
+    if len(_ESTIMATES) > 256:
+        _ESTIMATES.clear()
+    _ESTIMATES[key] = est
+    return est

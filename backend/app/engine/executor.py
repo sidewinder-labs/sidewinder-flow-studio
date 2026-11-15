@@ -399,8 +399,11 @@ def build_exec_context(
 
         Data is sent in batches as it is read: a Polars LazyFrame (e.g.
         pl.scan_csv) streams from its source to the database without ever
-        being loaded whole, so loads larger than memory work. Each load is one
-        transaction (Iceberg excepted), so a failure leaves the table as it was.
+        being loaded whole, so loads larger than memory work. Where the
+        database has transactions (PostgreSQL, SQL Server, MySQL/MariaDB with
+        InnoDB, Oracle, SQLite), each load is one, so a failure leaves the table
+        as it was. ClickHouse, StarRocks, Doris and Iceberg have none: a failure
+        there can leave part of the rows, so load a staging table and swap it in.
 
         Args:
             df: the data to write.
@@ -1466,6 +1469,8 @@ async def _execute_flow(
         })
 
         t0 = time.perf_counter()
+        from app.engine import active_runs as _ar
+        _ar.node_started(project_id, flow_id, label)   # named in run history if SFS dies here
 
         try:
             parent_ids = parents_of(node_id, edges)
@@ -1490,6 +1495,15 @@ async def _execute_flow(
             arrow_extra: list = []
             df_extra: list[pd.DataFrame] = []
             polars_paths: list[str] = []
+
+            # pandas loads every input whole: refuse up front if they can't fit,
+            # rather than finding out halfway through loading them.
+            if spec.input_mode == "pandas" and parent_ids:
+                from app.core import memory_guard as _mg
+                from app.core.frame_cache import pandas_estimate
+                ests = [e for e in (pandas_estimate(project_id, p) for p in parent_ids) if e]
+                if ests:
+                    _mg.check_pandas_load(sum(e["load_bytes"] for e in ests), sum(e["rows"] for e in ests), label)
 
             for i, pid in enumerate(parent_ids):
                 if not has_frame(project_id, pid):
@@ -1914,6 +1928,8 @@ async def _execute_flow(
             # Sibling branches continue — matches the hard-stop behaviour.
             blocked.update(descendants_of(node_id, edges))
             return
+        finally:
+            _ar.node_finished(project_id, flow_id, label)
 
 
     # ── Drive the graph ───────────────────────────────────────────────────

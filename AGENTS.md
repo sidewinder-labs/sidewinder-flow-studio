@@ -184,8 +184,11 @@ missing. It **streams**: input is read in batches (`chunk_rows`) and each batch
 is sent as it arrives, so a LazyFrame goes from its source to the database
 without being collected — memory stays around one batch (`chunk_rows`, whose
 default can be set in Meta → Settings). Pass a LazyFrame
-(e.g. `pl.scan_csv(...)`) straight in; never `.collect()` it first. Each load is
-one transaction (Iceberg excepted): a failure leaves the table as it was.
+(e.g. `pl.scan_csv(...)`) straight in; never `.collect()` it first. Where the
+database has transactions (PostgreSQL, SQL Server, MySQL/InnoDB, Oracle, SQLite)
+each load is one: a failure leaves the table as it was. ClickHouse, StarRocks,
+Doris and Iceberg have none — a failed load can leave part of the rows, so for
+those generate a load into a staging table that is swapped in afterwards.
 `mode="replace"` empties an existing table; add `recreate=True` to drop and
 rebuild it when columns changed. It is a Python function: never emit it inside a
 `duckdb` or `sql` engine node — those execute SQL. For large loads, write from a
@@ -213,7 +216,10 @@ express upserts through pandas.
 - **A memory budget can stop a node** (app/core/memory_guard.py): above it,
   DuckDB is interrupted and `fast_write` / streamed reads raise
   MemoryBudgetExceeded between batches. Don't swallow broad exceptions around
-  them in node code, or the flow carries on past the stop. Within a node, DuckDB scans the cached file (column
+  them in node code, or the flow carries on past the stop. A node whose engine
+  loads pandas is refused before loading when its input's estimated size
+  (frame_cache.pandas_estimate) won't fit: for large inputs generate Polars or
+  DuckDB, never pandas. A run interrupted by the process dying is "crashed". Within a node, DuckDB scans the cached file (column
   projection, spills to disk) and Polars scans lazily, so both handle
   larger-than-RAM data; **pandas loads the whole frame**. Generate Polars/DuckDB for large data, `sql`/`ibis` when it
   should stay in the warehouse.

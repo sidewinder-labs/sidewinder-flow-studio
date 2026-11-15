@@ -166,3 +166,21 @@ def running(project_id: str):
     showing as running."""
     from app.engine.active_runs import running_flows
     return {"flow_ids": sorted(running_flows(project_id))}
+
+
+@router.get("/estimate/{project_id}")
+def estimate(project_id: str, node_ids: str):
+    """What a pandas node with these inputs would load (the node panel shows
+    it before running): rows and memory per input, and the room left now."""
+    from app.core import memory, memory_guard
+    from app.core.frame_cache import pandas_estimate
+    inputs = []
+    for nid in [n for n in node_ids.split(",") if n]:
+        e = pandas_estimate(project_id, nid)
+        if e:
+            inputs.append({"node_id": nid, **e})
+    free, why = memory_guard.room()
+    return {"inputs": inputs, "rows": sum(i["rows"] for i in inputs),
+            "load_bytes": sum(i["load_bytes"] for i in inputs),
+            "room": free, "room_why": why, "budget": memory_guard.budget_bytes(),
+            "total": memory.total_bytes()}

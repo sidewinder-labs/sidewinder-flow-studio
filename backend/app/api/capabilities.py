@@ -69,11 +69,16 @@ async def to_code(req: ToCodeRequest):
     spec = ENGINES.get(req.engine)
     if spec is None or spec.to_code is None:
         raise HTTPException(404, f"Engine '{req.engine}' has no View as Python")
-    from app.core.frame_cache import has_frame, load_frame
+    from app.core import memory_guard
+    from app.core.frame_cache import has_frame, load_frame, load_frame_head, pandas_estimate
     inputs = []
     if req.project_id:
-        inputs = [load_frame(req.project_id, pid) for pid in req.parent_ids
-                  if has_frame(req.project_id, pid)]
+        pids = [pid for pid in req.parent_ids if has_frame(req.project_id, pid)]
+        need = sum((pandas_estimate(req.project_id, pid) or {}).get("load_bytes", 0) for pid in pids)
+        free, _ = memory_guard.room()
+        whole = free is None or need <= free      # too big for memory: the first rows, see PLUGINS.md
+        inputs = [load_frame(req.project_id, pid) if whole else load_frame_head(req.project_id, pid, 10_000)
+                  for pid in pids]
     try:
         code = spec.to_code(spec.resolve_params(req.node_data), inputs)
     except (ValueError, KeyError) as exc:
