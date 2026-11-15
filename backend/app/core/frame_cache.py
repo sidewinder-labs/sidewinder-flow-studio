@@ -15,6 +15,7 @@ import pyarrow.ipc as ipc
 import pandas as pd
 from pathlib import Path
 
+from app.core.arrow_files import ipc_writer
 from app.core.config import settings
 
 
@@ -28,7 +29,7 @@ def store_frame(flow_id: str, node_id: str, df: pd.DataFrame) -> int:
     """Persist a DataFrame as Arrow IPC. Returns row count."""
     table = pa.Table.from_pandas(df, preserve_index=False)
     path = _cache_path(flow_id, node_id)
-    with ipc.new_file(str(path), table.schema) as writer:
+    with ipc_writer(path, table.schema) as writer:
         writer.write_table(table)
     return len(table)
 
@@ -56,7 +57,7 @@ def store_frame_arrow(flow_id: str, node_id: str, table: pa.Table) -> int:
     """Persist a pyarrow Table directly — no pandas conversion.
     Used by the DuckDB engine to write results straight back to the cache."""
     path = _cache_path(flow_id, node_id)
-    with ipc.new_file(str(path), table.schema) as writer:
+    with ipc_writer(path, table.schema) as writer:
         writer.write_table(table)
     return len(table)
 

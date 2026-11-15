@@ -454,6 +454,7 @@ def read_to_ipc(out_path: str, url: str, dialect: str, connect_args: dict | None
     import os
     import uuid
 
+    from app.core.arrow_files import ipc_writer      # closed before the rename (Windows)
     from app.core.memory_guard import check
     path, uri, partitions, notes = _plan(url, dialect, connect_args, partition_on, partitions)
     qs = queries(table=table, tables=tables, sql=sql, schema=schema)
@@ -467,7 +468,7 @@ def read_to_ipc(out_path: str, url: str, dialect: str, connect_args: dict | None
                     batch = batch.append_column(source_col, pa.array([source] * batch.num_rows, pa.string()))
                 if writer is None:
                     wschema = batch.schema
-                    writer = pa.ipc.new_file(tmp, wschema)
+                    writer = ipc_writer(tmp, wschema)
                 elif batch.schema != wschema:
                     try:
                         batch = batch.cast(wschema)
@@ -478,7 +479,7 @@ def read_to_ipc(out_path: str, url: str, dialect: str, connect_args: dict | None
         if writer is None:                                   # no rows at all: same frame read() gives
             empty, _ = read(url, dialect, connect_args, table=table, tables=tables, sql=sql, schema=schema,
                             partition_on=partition_on, partitions=partitions, source_col=source_col)
-            writer = pa.ipc.new_file(tmp, empty.schema)
+            writer = ipc_writer(tmp, empty.schema)
             writer.write_table(empty)
             n = empty.num_rows
         writer.close()
@@ -491,7 +492,7 @@ def read_to_ipc(out_path: str, url: str, dialect: str, connect_args: dict | None
         log.info("fast_read: batches don't share one schema (%s); reading in one piece", e)
         table_, info = read(url, dialect, connect_args, table=table, tables=tables, sql=sql, schema=schema,
                             partition_on=partition_on, partitions=partitions, source_col=source_col)
-        with pa.ipc.new_file(tmp, table_.schema) as w:
+        with ipc_writer(tmp, table_.schema) as w:
             w.write_table(table_)
         os.replace(tmp, out_path)
         return info

@@ -49,8 +49,9 @@ def query_to_ipc(con, sql: str, path: str, batch_rows: int = 1_000_000) -> int |
     import uuid
     tmp, n = f"{path}.{uuid.uuid4().hex[:12]}.tmp", 0     # own file: runs of one flow can overlap
     try:
+        from app.core.arrow_files import ipc_writer
         from app.core.memory_guard import check
-        with pa.ipc.new_file(tmp, reader.schema) as w:
+        with ipc_writer(tmp, reader.schema) as w:     # closed before the rename (Windows)
             for batch in reader:
                 check()                      # memory budget: stop between batches
                 w.write_batch(batch)

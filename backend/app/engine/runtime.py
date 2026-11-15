@@ -49,6 +49,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
+from app.core.arrow_files import ipc_writer
+
 log = logging.getLogger("sfs.runtime")
 
 DEFAULT_TIMEOUT = 1800  # 30 minutes
@@ -108,7 +110,7 @@ def _write_frame(df_or_table, path: Path) -> None:
     table = df_or_table
     if not isinstance(table, pa.Table):
         table = pa.Table.from_pandas(df_or_table, preserve_index=False)
-    with ipc.new_file(path, table.schema) as w:
+    with ipc_writer(path, table.schema) as w:
         w.write_table(table)
 
 
