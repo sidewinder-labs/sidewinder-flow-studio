@@ -46,14 +46,14 @@ jobs:
           - { target: server-linux-x64, os: ubuntu-latest, install: docker,
               extras: "all-connectors,pushdown" }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: v${{ inputs.sfs }}                 # the app as released: its lock, its plugins
           path: app
-      - uses: actions/checkout@v5                 # the plugins at their current version
+      - uses: actions/checkout@v7                 # the plugins at their current version
         with:
           path: src
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: The app's environment, from its lock
@@ -94,12 +94,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: plugin-signing                  # requires approval; holds the key
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - run: python -m pip install -c locks/requirements.lock ./backend
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           pattern: packs-*
           path: dist
