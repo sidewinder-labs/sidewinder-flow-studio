@@ -4,25 +4,25 @@
 
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
-  /* The app is dark-only: native controls (selects, scrollbars, date pickers)
-     follow it. WebKitGTK (desktop on Linux) otherwise draws <select> with the
-     light GTK theme and ignores its background, leaving light text on white. */
-  :root { color-scheme: dark; }
+  /* Native controls (selects, scrollbars, date pickers) follow the theme
+     through color-scheme, set per theme by tailwind.config.js. WebKitGTK
+     (desktop on Linux) otherwise draws <select> with the GTK theme and ignores
+     its background. */
   select {
     -webkit-appearance: none; appearance: none;
     background-color: theme('colors.canvas.bg');
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2394a3b8' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2364748b' stroke-width='1.5'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: right 0.6rem center;
     padding-right: 1.75rem !important;
   }
-  select option, select optgroup { background-color: #111827; color: #e2e8f0; }
+  select option, select optgroup { background-color: theme('colors.surface.DEFAULT'); color: theme('colors.slate.200'); }
   body { @apply bg-canvas-bg text-slate-100 font-sans; margin: 0; -webkit-font-smoothing: antialiased; }
 
   /* React Flow */
-  .react-flow__background { background-color: #090c14 !important; }
+  .react-flow__background { background-color: theme('colors.canvas.bg') !important; }
 
   .react-flow__edge-path {
-    stroke: #38bdf8 !important;
+    stroke: theme('colors.accent.DEFAULT') !important;
     stroke-width: 2 !important;
   }
   .react-flow__edge.animated .react-flow__edge-path {
@@ -37,24 +37,24 @@
   .react-flow__handle {
     width: 10px !important; height: 10px !important;
     border-radius: 50% !important;
-    border: 2px solid #38bdf8 !important;
-    background: #090c14 !important;
+    border: 2px solid theme('colors.accent.DEFAULT') !important;
+    background: theme('colors.canvas.bg') !important;
     transition: background 0.15s, transform 0.15s;
   }
-  .react-flow__handle:hover { background: #38bdf8 !important; transform: scale(1.3); }
+  .react-flow__handle:hover { background: theme('colors.accent.DEFAULT') !important; transform: scale(1.3); }
 
   /* Custom edge label */
   .react-flow__edge-label { font-size: 10px !important; }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track { background: #111827; }
-  ::-webkit-scrollbar-thumb { background: #2d3a52; border-radius: 3px; }
+  ::-webkit-scrollbar-track { background: theme('colors.surface.DEFAULT'); }
+  ::-webkit-scrollbar-thumb { background: theme('colors.surface.overlay'); border-radius: 3px; }
 }
 
 @layer components {
   .node-card {
     @apply rounded-xl border shadow-lg select-none cursor-default min-w-[220px] max-w-[280px];
-    box-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 1px 4px rgba(0,0,0,0.4);
+    box-shadow: var(--node-shadow);
   }
   .node-header {
     @apply flex items-center gap-2 px-3 py-2 rounded-t-xl text-xs font-semibold tracking-widest uppercase;
@@ -104,17 +104,26 @@
 .help-prose blockquote { @apply border-l-2 border-accent/50 pl-3 text-slate-400 my-3; }
 .help-prose hr { @apply border-canvas-border my-5; }
 
-/* React Flow 12's theme variables (the canvas runs in colorMode="dark"), set
-   to the app's palette. Outside @layer on purpose: Tailwind drops layered rules
-   whose class never appears in the source, and React Flow adds .react-flow at
-   runtime. */
+/* React Flow 12's theme variables, set to the app's palette in both themes
+   (Canvas passes colorMode to match). Outside @layer on purpose: Tailwind drops
+   layered rules whose class never appears in the source, and React Flow adds
+   .react-flow at runtime. */
+/* Node shadows: deep on the dark canvas, soft on the light one. */
+:root { --node-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 1px 4px rgba(0,0,0,0.4); }
+:root[data-theme="light"] { --node-shadow: 0 1px 3px rgba(15,23,42,0.08), 0 4px 14px rgba(15,23,42,0.07); }
+
 .react-flow {
-  --xy-background-color: #090c14;
-  --xy-minimap-background-color: #111827;
-  --xy-minimap-mask-background-color: rgba(9, 12, 20, 0.6);
-  --xy-controls-button-background-color: #111827;
-  --xy-controls-button-background-color-hover: #1a2235;
-  --xy-controls-button-color: #cbd5e1;
-  --xy-controls-button-color-hover: #f1f5f9;
-  --xy-controls-button-border-color: #1e2540;
+  --xy-background-color: rgb(var(--t-canvas-bg));
+  --xy-background-pattern-color: rgb(var(--t-canvas-border));
+  --xy-minimap-background-color: rgb(var(--t-surface));
+  --xy-minimap-mask-background-color: rgb(var(--t-canvas-bg) / 0.6);
+  --xy-controls-button-background-color: rgb(var(--t-surface));
+  --xy-controls-button-background-color-hover: rgb(var(--t-surface-raised));
+  --xy-controls-button-color: rgb(var(--c-slate-300));
+  --xy-controls-button-color-hover: rgb(var(--c-slate-100));
+  --xy-controls-button-border-color: rgb(var(--t-canvas-border));
+  --xy-edge-label-background-color: rgb(var(--t-surface));
+  --xy-edge-label-color: rgb(var(--c-slate-300));
 }
+/* 1px dots need more contrast on a light canvas than the border colour gives. */
+:root[data-theme="light"] .react-flow { --xy-background-pattern-color: rgb(var(--t-canvas-grid)); }

@@ -45,10 +45,11 @@ export function FlowEdge({
   }
 
   // Edge colour logic
-  let stroke = '#2d3a52'          // default grey (not run)
-  if (isSevered)        stroke = '#fb923c'   // orange — halted at stop
-  else if (isRunning)   stroke = '#fbbf24'   // yellow — flowing now
-  else if (rowsOut !== undefined) stroke = '#38bdf8'  // blue — data passed
+  // Edge colour logic (theme variables, tailwind.config.js)
+  let stroke = 'rgb(var(--t-subtle))'                              // grey — not run
+  if (isSevered)        stroke = 'rgb(var(--t-status-stopped))'    // orange — halted at stop
+  else if (isRunning)   stroke = 'rgb(var(--t-status-running))'    // yellow — flowing now
+  else if (rowsOut !== undefined) stroke = 'rgb(var(--t-accent))'  // blue — data passed
 
   return (
     <>

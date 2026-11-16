@@ -20,6 +20,7 @@ import { RefreshCw, Save, BookmarkPlus, Compass, HelpCircle } from 'lucide-react
 import { openNodeInExplore } from '@/components/nodes/ReportNodes'
 import { useInsertTarget } from '@/components/help/insert'
 import { openHelp } from '@/components/help/HelpPanel'
+import { useTheme, monacoTheme } from '@/hooks/useTheme'
 
 const EDITOR_OPTS = {
   minimap: { enabled: false },
@@ -279,6 +280,7 @@ const FALLBACK_ENGINES = [
 let _capsCache: any[] | null = null
 
 export function ProcessorPanel({ nodeId }: { nodeId: string }) {
+  const theme = useTheme()
   const { activeFlowId, updateNodeData, activeProject, runFlow, connections } = useStore()
   const flow = activeProject?.flows.find((f) => f.id === activeFlowId)
   const data = useNodeData(nodeId)
@@ -590,7 +592,7 @@ export function ProcessorPanel({ nodeId }: { nodeId: string }) {
               placeholder: engine === 'duckdb' ? DUCKDB_HINT : engine === 'polars' ? POLARS_HINT : engine === 'sql' ? SQL_HINT : engine === 'ibis' ? IBIS_HINT
                 : (engineSpec?.source?.startsWith('plugin:') && engineSpec?.hint) || PROCESSOR_HINT,
             } as any}
-            theme="vs-dark"
+            theme={monacoTheme(theme)}
           />
           </div>
         </div>
@@ -718,6 +720,7 @@ type ChartTemplate = { name: string; code: string; description: string; source: 
 let _chartTemplates: ChartTemplate[] | null = null
 
 export function ChartOutPanel({ nodeId }: { nodeId: string }) {
+  const theme = useTheme()
   const { activeFlowId, updateNodeData } = useStore()
   const data = useNodeData(nodeId)
 
@@ -831,7 +834,7 @@ export function ChartOutPanel({ nodeId }: { nodeId: string }) {
           onChange={(v) => setCode(v ?? '')}
           onMount={(ed) => { editorRef.current = ed }}
           options={{ ...EDITOR_OPTS, placeholder: CHART_HINT } as any}
-          theme="vs-dark"
+          theme={monacoTheme(theme)}
         />
       </div>
 
@@ -931,6 +934,7 @@ const REPORT_HINT = `# Streamlit dashboard code. Pre-injected: st, df (pandas), 
 `
 
 export function ReportPanel({ nodeId }: { nodeId: string }) {
+  const theme = useTheme()
   const { activeFlowId, updateNodeData } = useStore()
   const data = useNodeData(nodeId)
   const [label, setLabel] = useState(data.label ?? 'Report')
@@ -991,7 +995,7 @@ export function ReportPanel({ nodeId }: { nodeId: string }) {
           value={code}
           onChange={(v) => setCode(v ?? '')}
           options={{ ...EDITOR_OPTS, placeholder: REPORT_HINT } as any}
-          theme="vs-dark"
+          theme={monacoTheme(theme)}
         />
       </div>
       <button className="btn-pri w-full shrink-0" onClick={save}>

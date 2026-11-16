@@ -14,6 +14,7 @@ import { api } from '@/utils/api'
 import type { BrowserSettings, ExploreDrillConfig, ExploreField, ExploreFrame, ExplorePersisted, ExploreSource, ExploreTable } from '@/types'
 import { CreateNodeDialog, DrillPanel, DrillSettingsDialog } from './ExploreActions'
 import { isLive, sourceKey } from './source'
+import { useTheme, monacoTheme } from '@/hooks/useTheme'
 
 interface QueryLog {
   sql: string
@@ -36,7 +37,19 @@ declare global {
 
 // SFS palette (tailwind.config.js) mapped onto Graphic Walker's UI tokens.
 const SFS_THEME: IUIThemeConfig = {
-  light: slateTheme.light,
+  light: {
+    ...slateTheme.light,
+    background: '#f3f6fa', foreground: '#0f172a',
+    card: '#ffffff', 'card-foreground': '#0f172a',
+    popover: '#ffffff', 'popover-foreground': '#0f172a',
+    primary: '#0369a1', 'primary-foreground': '#ffffff',
+    muted: '#eaeff6', 'muted-foreground': '#556275',
+    secondary: '#dde4ee', 'secondary-foreground': '#0f172a',
+    accent: '#dde4ee', 'accent-foreground': '#0f172a',
+    destructive: '#b91c1c', 'destructive-foreground': '#ffffff',
+    dimension: '#0369a1', measure: '#047857',
+    border: '#d5dde8', input: '#d5dde8', ring: '#0369a1',
+  },
   dark: {
     background: '#090c14', foreground: '#e2e8f0',
     card: '#111827', 'card-foreground': '#e2e8f0',
@@ -387,6 +400,7 @@ function SchemaList({ fields, rows, approx }: { fields: ExploreField[]; rows?: n
 function SqlEditor({ connection, initial, onRun, onCancel }: {
   connection: string; initial: string; onRun: (sql: string) => void; onCancel: () => void
 }) {
+  const theme = useTheme()
   const [sql, setSql] = useState(initial)
   // Read the text from the editor itself when running: Ctrl+Enter straight
   // after typing fires before React has re-rendered with the last keystrokes.
@@ -409,7 +423,7 @@ function SqlEditor({ connection, initial, onRun, onCancel }: {
       <div className="relative h-72 shrink-0 rounded-lg overflow-hidden border border-canvas-border"
         onKeyDown={(e) => e.stopPropagation()} data-testid="sql-editor">
         <div className="absolute inset-0">
-          <Editor height="100%" defaultLanguage="sql" theme="vs-dark" value={sql}
+          <Editor height="100%" defaultLanguage="sql" theme={monacoTheme(theme)} value={sql}
             onChange={(v) => setSql(v ?? '')}
             onMount={(ed, monaco) => {
               editor.current = ed
@@ -436,6 +450,7 @@ function SqlEditor({ connection, initial, onRun, onCancel }: {
 function Walker({ source, fields, onEditSql, onOpen }: {
   source: ExploreSource; fields: ExploreField[]; onEditSql: () => void; onOpen: (s: ExploreSource) => void
 }) {
+  const theme = useTheme()
   const [log, setLog] = useState<QueryLog[]>([])
   const [showSql, setShowSql] = useState(false)
   const [dialog, setDialog] = useState<'node' | 'drill-settings' | null>(null)
@@ -538,7 +553,7 @@ function Walker({ source, fields, onEditSql, onOpen }: {
           fields={fields as unknown as IMutField[]}
           computation={computation}
           storeRef={storeRef}
-          appearance="dark"
+          appearance={theme}
           uiTheme={SFS_THEME}
           defaultConfig={GW_DEFAULTS}
           computationTimeout={120_000}

@@ -14,14 +14,20 @@ export interface AnnotationData {
   fontSize?: number
 }
 
-// Muted, translucent backgrounds so they read as "behind" annotations
+// Muted, translucent backgrounds so they read as "behind" annotations. Built
+// from the theme's colour scales, so they suit the light theme too.
+const note = (hue: string, bg = '900', alpha = 0.22) => ({
+  bg: `rgb(var(--c-${hue}-${bg}) / ${alpha})`,
+  border: `rgb(var(--c-${hue}-500) / 0.5)`,
+  text: `rgb(var(--c-${hue}-300))`,
+})
 export const ANNOTATION_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  slate:  { bg: 'rgba(51,65,85,0.25)',   border: 'rgba(100,116,139,0.5)', text: '#cbd5e1' },
-  amber:  { bg: 'rgba(120,53,15,0.22)',  border: 'rgba(245,158,11,0.5)',  text: '#fcd34d' },
-  green:  { bg: 'rgba(6,78,59,0.22)',    border: 'rgba(16,185,129,0.5)',  text: '#6ee7b7' },
-  blue:   { bg: 'rgba(30,58,138,0.22)',  border: 'rgba(59,130,246,0.5)',  text: '#93c5fd' },
-  purple: { bg: 'rgba(76,29,149,0.22)',  border: 'rgba(139,92,246,0.5)',  text: '#c4b5fd' },
-  rose:   { bg: 'rgba(136,19,55,0.22)',  border: 'rgba(244,63,94,0.5)',   text: '#fda4af' },
+  slate:  note('slate', '700', 0.25),
+  amber:  note('amber'),
+  green:  note('emerald'),
+  blue:   note('blue'),
+  purple: note('violet'),
+  rose:   note('rose'),
 }
 
 export const AnnotationNode = memo(({ id, data, selected }: DataNodeProps<AnnotationData>) => {

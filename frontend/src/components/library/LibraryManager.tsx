@@ -8,6 +8,7 @@ import Editor from '@monaco-editor/react'
 import { Archive, Download, Pencil, Search, Trash2, Upload } from 'lucide-react'
 import { api, type LibraryEntry } from '@/utils/api'
 import { StateBadge, errText } from './parts'
+import { useTheme, monacoTheme } from '@/hooks/useTheme'
 
 type Filter = 'all' | 'unused' | 'deprecated'
 
@@ -86,6 +87,7 @@ export function LibraryManager() {
 }
 
 function EntryDetail({ entry, onChanged, onDeleted }: { entry: LibraryEntry; onChanged: () => void; onDeleted: () => void }) {
+  const theme = useTheme()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState({ code: entry.code, imports: entry.imports, description: entry.description, tags: entry.tags.join(', ') })
   const [depNote, setDepNote] = useState<string | null>(null)
@@ -123,7 +125,7 @@ function EntryDetail({ entry, onChanged, onDeleted }: { entry: LibraryEntry; onC
           <div><label className="label">Tags</label><input className="input text-xs" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} /></div>
           <div><label className="label">Imports</label><textarea className="input text-xs font-mono" rows={3} spellCheck={false} value={draft.imports} onChange={(e) => setDraft({ ...draft, imports: e.target.value })} /></div>
           <div className="h-64 rounded-lg overflow-hidden border border-canvas-border" onKeyDown={(e) => e.stopPropagation()}>
-            <Editor height="100%" defaultLanguage="python" theme="vs-dark" value={draft.code}
+            <Editor height="100%" defaultLanguage="python" theme={monacoTheme(theme)} value={draft.code}
                     onChange={(v) => setDraft({ ...draft, code: v ?? '' })}
                     options={{ minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false, automaticLayout: true }} />
           </div>

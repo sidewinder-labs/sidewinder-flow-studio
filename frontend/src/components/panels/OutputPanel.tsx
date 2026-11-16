@@ -13,6 +13,7 @@ import {
   Clock, ChevronDown, ChevronRight, ArrowRight,
 } from 'lucide-react'
 import type { NodeStatus, ColumnSchema } from '@/types'
+import { useTheme } from '@/hooks/useTheme'
 
 // ── Data table ────────────────────────────────────────────────────────────────
 
@@ -151,6 +152,7 @@ function ChartRenderer({ chartType, payload }: { chartType: string; payload: str
 
 // ECharts rendered inline using the bundled echarts-for-react library
 function EChartsRenderer({ payload }: { payload: string }) {
+  const theme = useTheme()
   const [error, setError] = useState<string | null>(null)
   const [ReactECharts, setReactECharts] = useState<any>(null)
   const [option, setOption] = useState<any>(null)
@@ -195,7 +197,7 @@ function EChartsRenderer({ payload }: { payload: string }) {
     <div className="p-2">
       <ReactECharts
         option={{ backgroundColor: 'transparent', ...option }}
-        theme="dark"
+        theme={theme}
         style={{ width: '100%', height: 360 }}
         notMerge={true}
         lazyUpdate={true}

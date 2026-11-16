@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { Code2, Copy, X, Wand2 } from 'lucide-react'
 import { api } from '@/utils/api'
+import { useTheme, monacoTheme } from '@/hooks/useTheme'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
@@ -76,6 +77,7 @@ export function ViewAsPython({ engine, engineLabel, data, projectId, parentIds, 
 function CodeDialog({ title, code, onClose, onConvert }: {
   title: string; code: string; onClose: () => void; onConvert: () => void
 }) {
+  const theme = useTheme()
   const ref = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
 
@@ -107,7 +109,7 @@ function CodeDialog({ title, code, onClose, onConvert }: {
           The same work as the form, as plain code. Read-only here — convert the node to edit it.
         </p>
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden border border-canvas-border">
-          <Editor height="100%" defaultLanguage="python" value={code} theme="vs-dark"
+          <Editor height="100%" defaultLanguage="python" value={code} theme={monacoTheme(theme)}
             options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }} />
         </div>
       </div>

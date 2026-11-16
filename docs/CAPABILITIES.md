@@ -642,3 +642,4 @@ Runs every weekday at 06:00, retries twice with backoff on failure, alerts on fi
 - **Keep engines per-node.** Use pandas for the fiddly Python bits and SQL/DuckDB/Polars for the heavy relational work; the Arrow boundaries between them are cheap.
 - **Let the agent draft, then read it.** Especially for charts and Streamlit reports where the boilerplate is tedious.
 - **Push down at scale.** The further you push filtering/aggregation toward the source (SQL/Ibis engines, or SQL in a pandas node), the less data crosses into SFS.
+- **Light or dark.** **Meta → Settings → Appearance** switches between the dark theme, a light one, or following your system setting. The choice is saved per browser. Charts you write yourself keep the colours their code sets.

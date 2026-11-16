@@ -16,6 +16,7 @@ import { RouterNode } from '@/components/nodes/RouterNode'
 import { FlowEdge }      from './FlowEdge'
 import { ContextMenu }   from './ContextMenu'
 import { useStore, registerCanvasCallbacks, unregisterCanvasCallbacks } from '@/store'
+import { useTheme } from '@/hooks/useTheme'
 
 const NODE_TYPES = {
   trigger:   TriggerNode,
@@ -77,6 +78,7 @@ const savedNodes = (ns: Node[]) => ns.map(toSaved)
 interface CanvasInnerProps { flowId: string }
 
 function CanvasInner({ flowId }: CanvasInnerProps) {
+  const theme = useTheme()
   const { activeProject, updateFlowCanvas, setSelectedNode } = useStore()
   const { screenToFlowPosition } = useReactFlow()
 
@@ -209,10 +211,10 @@ function CanvasInner({ flowId }: CanvasInnerProps) {
         fitView
         deleteKeyCode="Delete"
         proOptions={{ hideAttribution: true }}
-        colorMode="dark"
+        colorMode={theme}
         className="bg-canvas-bg"
       >
-        <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#1e2540" />
+        <Background variant={BackgroundVariant.Dots} gap={28} size={1} />
         <Controls className="!bg-surface !border-canvas-border" />
         <MiniMap
           nodeColor={(n) => ({

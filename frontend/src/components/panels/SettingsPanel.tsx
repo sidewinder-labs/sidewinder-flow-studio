@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Lock, Power, RotateCcw } from 'lucide-react'
 import { api, type AppSetting, type SettingsView } from '@/utils/api'
+import { setThemeChoice, useThemeChoice, type ThemeChoice } from '@/hooks/useTheme'
 
 /** Meta → Settings: SFS settings edited in the app, no config file needed.
  *  A value set by the environment wins and is shown locked; secrets are never
@@ -53,6 +54,7 @@ export function SettingsPanel() {
 
   return (
     <div className="space-y-3 text-xs">
+      <Appearance />
       <MemoryCard m={v.memory} />
 
       {v.restart_needed.length > 0 && (
@@ -84,6 +86,28 @@ export function SettingsPanel() {
         Data folders, the metadata database and the secret key stay in the environment: SFS needs them to start.
       </p>
     </div>
+  )
+}
+
+const THEMES: [ThemeChoice, string][] = [['dark', 'Dark'], ['light', 'Light'], ['system', 'Match system']]
+
+/** The colour theme: a preference of this browser, applied at once. */
+function Appearance() {
+  const choice = useThemeChoice()
+  return (
+    <section className="space-y-2">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">Appearance</h3>
+      <div className="flex gap-1 p-0.5 rounded-lg bg-canvas-bg border border-canvas-border" role="radiogroup" aria-label="Theme">
+        {THEMES.map(([value, label]) => (
+          <button key={value} role="radio" aria-checked={choice === value} onClick={() => setThemeChoice(value)}
+            className={`flex-1 py-1 rounded-md transition-colors ${choice === value
+              ? 'bg-surface-raised text-accent font-semibold' : 'text-muted hover:text-slate-200'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-subtle">Saved in this browser.</p>
+    </section>
   )
 }
 

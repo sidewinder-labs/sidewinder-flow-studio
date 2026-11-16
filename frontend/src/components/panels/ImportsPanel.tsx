@@ -4,6 +4,7 @@ import { useStore } from '@/store'
 import { useHelpData } from '@/utils/engines'
 import { openHelp } from '@/components/help/HelpPanel'
 import { FunctionsLibrary } from '@/components/library/FunctionsLibrary'
+import { useTheme, monacoTheme } from '@/hooks/useTheme'
 
 const DEFAULT_IMPORTS = 'import pandas as pd\nimport sqlalchemy as sa\n'
 const FUNCTIONS_HINT = `# Define reusable functions here — they're available in EVERY node of this flow.
@@ -24,6 +25,7 @@ const FUNCTIONS_HINT = `# Define reusable functions here — they're available i
 `
 
 export function ImportsPanel() {
+  const theme = useTheme()
   const { activeProject, activeFlowId, updateFlowImports, updateFlowShared, updateFlowLibrary } = useStore()
   const { helpers } = useHelpData()
   const flow = activeProject?.flows.find((f) => f.id === activeFlowId)
@@ -78,7 +80,7 @@ export function ImportsPanel() {
             padding: { top: 8 }, automaticLayout: true,
             placeholder: tab === 'functions' ? FUNCTIONS_HINT : undefined,
           } as any}
-          theme="vs-dark"
+          theme={monacoTheme(theme)}
         />
       </div>
 
