@@ -17,8 +17,14 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend and plugins (Python 3.13)
+    # 3.13 is the minimum and what the Docker images and the desktop app ship;
+    # 3.14 proves the newest release works too
+    name: Backend and plugins (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
 
@@ -27,7 +33,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: locks/requirements.lock
 
@@ -35,11 +41,14 @@ jobs:
       - name: Install the backend and the bundled plugins
         run: python -m pip install -c locks/requirements.lock "./backend[dev,pushdown,fastread]" ./plugins/sfs-plugin-curvefit ./plugins/sfs-plugin-tm1 ./plugins/sfs-plugin-powerbi
 
+      # The lock checks need to run once, on the shipped version
       - name: Installed packages match the lock
+        if: matrix.python == '3.13'
         run: python scripts/check_lock.py
 
       # A dependency added to a pyproject.toml without re-locking fails here
       - name: The locks are up to date
+        if: matrix.python == '3.13'
         run: |
           pip install uv==0.13.7
           scripts/lock.sh
