@@ -9,6 +9,7 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from starlette.websockets import WebSocketDisconnect
 
 from app.api import auth as auth_api, projects as projects_api, ws as ws_api
@@ -26,7 +27,9 @@ PW = "correct horse battery"
 def make(tmp_path, monkeypatch):
     """make(mode='password', env_password=None) → a signed-out TestClient."""
     monkeypatch.setattr(settings, "PROJECTS_DIR", str(tmp_path / "projects"))
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'meta.db'}")
+    # No pool: TestClient runs each request and WebSocket on a fresh event loop,
+    # and a pooled aiosqlite connection would call back into a loop already closed
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'meta.db'}", poolclass=NullPool)
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(store, "AsyncSessionLocal", Session)
 
