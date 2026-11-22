@@ -124,13 +124,17 @@ These are the complete, genuinely useful free product. Nothing here is crippled.
 - ✅ Desktop app (Windows, Linux) and Docker (single / multi-container)
 - ✅ Self-healing data directories, SECRET_KEY encryption
 - ✅ Run history / audit table + Runs panel
+- ✅ **Sign-in** — one password for the instance, API tokens, session timeout,
+  rate limiting, server-side reset; cross-site requests refused (off by
+  default on the desktop app)
 
 ---
 
 ## Enterprise capabilities
 
 Enterprise lives in the private `sfs-enterprise` repository as one plugin
-package. The package exists and loads; no enterprise feature is built yet.
+package. Licensing and the TM1 modeling and Power BI operations packs are
+built; user accounts, roles and the rest are planned.
 
 > **Commitment:** functionality already published in the open repository will not
 > be retroactively removed from it. The SQL and Ibis pushdown engines and the
@@ -153,6 +157,8 @@ Rows marked *Core (open)* are open-core work that enterprise builds on.
 | **Auth — SSO** (Entra ID, Okta, Google; OIDC/SAML) | ⬜ | Enterprise | The #1 enterprise procurement ask. Extra endpoints through the provider's `routes()`. |
 | **RBAC** (viewer / editor / admin; per-project permissions) | ⬜ | Enterprise | Roles are sets of catalogue permissions; edit access stays equivalent to shell access. |
 | **Audit log** — who signed in, changed and ran what | ⬜ | Enterprise | Builds on the principal each request carries. |
+| **Publish from desktop** — prototype and test on the desktop app, then push flows to a server | ⬜ | Core (open) | One instance pushing to another with an API token: a preview of new/changed flows and of connections the server lacks; connections matched by name, so each side points at its own databases; no credentials sent. Builds on project export/import. |
+| **Versioning and approvals** — every publish kept as a version; rollback; approval before a flow runs on schedule | ⬜ | Enterprise | Who may publish into which project comes from RBAC; publishes are recorded in the audit log. |
 | **Isolated plugin runtime** — separate venv per plugin, Arrow file handoff | ✅ | Core (open) | DONE — `app/engine/runtime.py`, exposed to plugins as `api.run_isolated()`. |
 | **Worker queue scaling** — Celery/RQ workers, Postgres metadata, shared frame store | ⬜ | Enterprise (plugin + infra) | Distributed execution across machines and concurrent users — distinct from the free single-machine parallelism. |
 | **Vector/MCP semantic catalog** — profile tables + DAG lineage → catalog → expose as MCP server for AI tools | ⬜ | Enterprise | Flagship AI-native differentiator. |
@@ -162,8 +168,8 @@ Rows marked *Core (open)* are open-core work that enterprise builds on.
 | **StarRocks Stream Load / MySQL LOAD DATA** — best-tier bulk paths | ⬜ | Core (open) | Optimizes the existing `fast_write` dispatcher. |
 | **`fast_read`** (ConnectorX Arrow-native fast source reads) | ⬜ | Core (open) | Symmetric to fast_write. |
 | **Resume from failed node** — scheduled retries re-run only what failed | ⬜ | Core (open) | Today a retry re-runs the whole flow; writes must be idempotent. |
-| **Automated tests + CI** | 🟡 | Core (open) | pytest suite in `backend/tests` (run with `pytest`); CI not set up yet. |
-| **Desktop app** (Electron/Tauri) — education/free tier | ⬜ | Packaging | Independent track. |
+| **Automated tests + CI** | ✅ | Core (open) | pytest suite in `backend/tests`; GitHub Actions runs tests, desktop builds (Windows, Linux) and lock checks. |
+| **Desktop app** (Tauri) — Windows and Linux | ✅ | Core (open) | `desktop/`; frozen backend sidecar, bound to 127.0.0.1. |
 | **Git integration for flows** — flows as files in the organisation's Git repository | ⬜ | Enterprise | Saving stays local and frequent; publishing is deliberate: **Push to Git**, used when a set of changes is finished, shows a diff of everything changed since the last push and asks for a commit message. Pull to update from the remote, branch-per-environment promotion (development → test → production), review through pull requests. Depends on deterministic serialization (done, v1.37). |
 | **Spark pushdown** — run work on the organisation's existing Spark | ⬜ | Enterprise | A PySpark engine whose node code executes on a remote cluster through Spark Connect and returns results as Arrow, plus Spark as an Ibis backend. Results written inside the cluster by default, with Explore-style row caps when pulled back; Kerberos authentication for Hadoop environments. Plain Spark SQL through a Thrift Server dialect may work with the existing SQL pushdown engine and stays in Community. |
 
@@ -198,8 +204,8 @@ community, and open connectors are table stakes.
 2. ✅ **Plugin loader** — entry-point group `sfs.plugins`, plus
    `/api/capabilities` so the frontend renders engines dynamically.
 3. ✅ **Enterprise repository** — `sfs-enterprise` (private) holds the
-   `sfs_enterprise` plugin package; it registers nothing yet.
-4. ⬜ **Licensing library** — Ed25519 sign/verify, offline; the first enterprise
+   `sfs_enterprise` plugin package.
+4. ✅ **Licensing library** — Ed25519 sign/verify, offline; the first enterprise
    feature.
-5. ⬜ **Auth interface** — no-op default in open core; implementation in the
-   enterprise plugin.
+5. ✅ **Auth interface** — the password provider in open core; user accounts,
+   SSO and roles as providers in the enterprise plugin.
