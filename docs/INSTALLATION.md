@@ -80,6 +80,30 @@ docker compose --profile reports up --build -d
 - **On Linux**, a database running on the host machine is at `host.docker.internal` (the compose files map it), not `localhost`.
 - Files you read in node code must be inside the container: mount a host folder (for example at `/data/imports`) in `docker-compose.yml`.
 
+### Signing in
+
+The server edition (Docker, or the backend run by hand) asks for a password: node code runs on the server, so an open SFS on a network would let anyone who reaches it run code there and use every stored credential. There is no default password.
+
+**Set it** in one of three ways:
+
+- **In the browser, on first start.** SFS prints a one-time setup code to its log; the first page asks for it and the new password. In Docker: `docker compose logs backend`. The code changes at every start until a password is set, so whoever reaches the page first can't claim it.
+- **From the environment:** `SFS_PASSWORD=…` in `.env`. It then wins at every start and can't be changed in the app.
+- **On the server:** `docker compose exec -it backend python -m app.auth set-password` (outside Docker, `python -m app.auth set-password` in `backend/`).
+
+**Forgot it?** The same `set-password` command resets it and signs every browser out. `python -m app.auth sign-out-all` and `python -m app.auth revoke-tokens` end all sessions or revoke all API tokens.
+
+**In the app** (**Meta → Settings → Security**): sign out, change the password (other browsers must sign in again), and create **API tokens** for scripts and CI. A token is shown once; send it as `Authorization: Bearer <token>`:
+
+```bash
+curl -H "Authorization: Bearer sfs_…" http://localhost:8080/api/projects/
+```
+
+**What's protected:** every API call, the run-event WebSocket, Explore queries and the reports viewer (it checks the same sign-in). Sessions end after 12 hours without use (**Meta → Settings → Sign-in**) and after 30 days at most. After 5 wrong passwords, each further attempt waits longer, up to 15 minutes. Requests sent from other websites are refused.
+
+**Use HTTPS beyond localhost.** Over plain HTTP the password can be read on the network. Put SFS behind a reverse proxy that terminates TLS, such as Caddy (`sfs.example.com { reverse_proxy localhost:8080 }`) or Traefik. SFS marks its cookie Secure when the proxy says the browser used HTTPS (`X-Forwarded-Proto`). If the proxy changes the `Host` header, add the address users open to `CORS_ORIGINS`, or SFS refuses their changes as coming from another site.
+
+**Turning it off.** `SFS_AUTH=none` removes sign-in. Only do this when something in front of SFS already signs people in (an SSO proxy, a VPN-only host). The desktop app has no sign-in by default: it listens on 127.0.0.1 only.
+
 ### Choosing drivers
 
 The backend image installs the drivers named in the `SFS_EXTRAS` build setting. It defaults to `all-connectors,pushdown`: every warehouse driver plus the SQL and Ibis engines. For a smaller image, set it in `.env` and rebuild:
@@ -123,15 +147,16 @@ Change settings in the app: **Meta → Settings**. No config file to find or edi
 |---|---|
 | Memory & performance | Memory budget, DuckDB memory limit and spill folder, Polars threads, `fast_write` batch size, parallel branches |
 | Explore | Rows per chart query, query time limit |
+| Sign-in | Sign out after idle (hours) |
 | Failure alerts | Slack webhook, SMTP server, port, user, password, sender |
 
 Most apply at once. A setting marked **restart** (Polars threads) shows a **Restart now** button after saving; in Docker and the desktop app SFS restarts itself in a few seconds. Values are kept in the data folder (`settings.json`), so they survive updates and come along in a backup; the Slack webhook and SMTP password are encrypted like connection passwords and never shown again. AI providers are set in **Meta → AI**.
 
 **Memory budget.** When SFS uses more memory than this, running flows are stopped with a message in the run history, instead of the machine running out of memory. The default is 80% of the machine's memory (or of the container's limit). A smaller machine can lower it, a large server can raise it; `off` turns it off. DuckDB nodes get half the budget by default and spill to disk beyond it.
 
-**Managed deployments.** Every setting can also be set as an environment variable of the same name (`SFS_MEMORY_BUDGET`, `SFS_DUCKDB_MEMORY_LIMIT`, `SFS_DUCKDB_TEMP_DIR`, `POLARS_MAX_THREADS`, `SFS_WRITE_CHUNK_ROWS`, `SFS_PARALLEL_BRANCHES`, `EXPLORE_ROW_CAP`, `EXPLORE_TIMEOUT_S`, `SLACK_WEBHOOK_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`): in Docker in the `backend` service's `environment:` block, in the desktop app in the data folder's `.env`. An environment variable wins and shows as locked in the app.
+**Managed deployments.** Every setting can also be set as an environment variable of the same name (`SFS_MEMORY_BUDGET`, `SFS_DUCKDB_MEMORY_LIMIT`, `SFS_DUCKDB_TEMP_DIR`, `POLARS_MAX_THREADS`, `SFS_WRITE_CHUNK_ROWS`, `SFS_PARALLEL_BRANCHES`, `EXPLORE_ROW_CAP`, `EXPLORE_TIMEOUT_S`, `SFS_SESSION_IDLE_HOURS`, `SLACK_WEBHOOK_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`): in Docker in the `backend` service's `environment:` block, in the desktop app in the data folder's `.env`. An environment variable wins and shows as locked in the app.
 
-Deployment settings stay in the environment, because SFS needs them to start: data folders, `METADATA_DB_URL`, `SECRET_KEY`, `SFS_PLUGIN_VENVS_DIR`.
+Deployment settings stay in the environment, because SFS needs them to start: data folders, `METADATA_DB_URL`, `SECRET_KEY`, `SFS_PLUGIN_VENVS_DIR`, and sign-in's `SFS_PASSWORD` and `SFS_AUTH`.
 
 **A hard memory cap.** The budget is checked four times a second, so a sudden huge allocation can overshoot it. To make sure SFS can never take the whole machine, also give the container a limit in `docker-compose.yml` (`mem_limit: 24g` under `backend`); the budget then works within it.
 

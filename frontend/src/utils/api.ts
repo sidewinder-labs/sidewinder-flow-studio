@@ -73,11 +73,29 @@ export interface LibraryResult {
 
 export interface TrashedProject { id: string; name: string; deleted_at: string | null; flows: number }
 
+/** Raised (on window) when the backend answers 401: the session ended or was
+ *  never there. AuthGate then shows the sign-in screen. */
+export const AUTH_REQUIRED = 'sfs:auth-required'
+
+function checkSignedIn(path: string, res: Response) {
+  // Sign-in calls answer 401 for a wrong password: that's not a lost session
+  if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event(AUTH_REQUIRED))
+}
+
+/** The message of an API error: the backend's `detail`, else the raw text. */
+export function errorMessage(e: unknown): string {
+  const msg = String((e as Error)?.message ?? e).replace(/^Error: /, '')
+  const m = msg.match(/^API \d+: (.*)$/s)
+  if (!m) return msg
+  try { const d = JSON.parse(m[1]).detail; return typeof d === 'string' ? d : m[1] } catch { return m[1] }
+}
+
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...opts,
   })
+  checkSignedIn(path, res)
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`API ${res.status}: ${body}`)
@@ -172,7 +190,36 @@ export interface SettingsView {
   memory: { total: number | null; used: number | null; budget: number | null }
 }
 
+export interface AuthUser { id: string; name: string; kind: 'user' | 'token' | 'service' | 'local'; via: string }
+export interface AuthStatus {
+  provider: string
+  sign_in_required: boolean
+  signed_in: boolean
+  user: AuthUser | null
+  permissions: string[]
+  needs_setup: boolean
+  password_from_env?: boolean
+  methods: { type: string; [k: string]: unknown }[]
+}
+export interface ApiTokenRow {
+  id: string; name: string; prefix: string
+  created_at: string; last_used_at: string | null; expires_at: string | null
+}
+
 export const api = {
+  auth: {
+    status: () => req<AuthStatus>('/auth/status'),
+    login: (password: string) => req<{ ok: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
+    setup: (code: string, password: string) =>
+      req<{ ok: boolean }>('/auth/setup', { method: 'POST', body: JSON.stringify({ code, password }) }),
+    logout: () => req<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+    changePassword: (current: string, next: string) =>
+      req<{ ok: boolean }>('/auth/password', { method: 'POST', body: JSON.stringify({ current, new: next }) }),
+    tokens: () => req<ApiTokenRow[]>('/auth/tokens'),
+    createToken: (name: string, expires_days?: number) =>
+      req<ApiTokenRow & { token: string }>('/auth/tokens', { method: 'POST', body: JSON.stringify({ name, expires_days }) }),
+    revokeToken: (id: string) => req<void>(`/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  },
   settings: {
     get: () => req<SettingsView>('/settings/'),
     save: (values: Record<string, unknown>) =>
@@ -187,6 +234,7 @@ export const api = {
     upload: async (file: File) => {
       const fd = new FormData(); fd.append('file', file)
       const r = await fetch(`${BASE}/plugins/upload`, { method: 'POST', body: fd })
+      checkSignedIn('/plugins/upload', r)
       if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`)
       return r.json() as Promise<PluginsView>
     },

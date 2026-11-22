@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import type { WsEvent } from '@/types'
+import { AUTH_REQUIRED } from '@/utils/api'
 
 type Handler = (event: WsEvent) => void
 
@@ -29,7 +30,9 @@ export function useFlowWebSocket(flowId: string | null, onEvent: Handler, onReco
       } catch { /* ignore */ }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
+      // 4401: not signed in. Show the sign-in screen; reconnecting retries after it.
+      if (e.code === 4401) window.dispatchEvent(new Event(AUTH_REQUIRED))
       if (wsRef.current === ws) droppedRef.current = true
       // Reconnect after 2s if closed unexpectedly
       setTimeout(() => {

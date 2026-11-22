@@ -452,6 +452,49 @@ Real examples: `plugins/sfs-plugin-tm1` and `plugins/sfs-plugin-powerbi`.
 
 ---
 
+## Sign-in providers (optional)
+
+SFS's sign-in is one interface with replaceable providers. Community ships the
+instance password and "no sign-in" (desktop); a plugin can take over with its
+own, which is how `sfs-enterprise` adds user accounts, SSO and roles:
+
+```python
+from app.auth.providers import AuthProvider, AuthError
+from app.auth.principal import Principal
+
+class MyProvider(AuthProvider):
+    name = "my-sso"
+
+    async def authenticate(self, conn):            # a request or a WebSocket
+        ...                                         # → Principal, or None if not signed in
+
+    def authorize(self, principal, permission):     # default: permission in principal.permissions
+        ...
+
+def register(api):
+    api.register_auth_provider(MyProvider())
+```
+
+What stays SFS's, for every provider: the route guard, sessions and API tokens
+(`app.auth.store`: `create_session(principal_id)`, `create_token(...)`), the
+`sfs_session` cookie, rate limiting and the cross-site check.
+
+- **Permissions** are the names in `app/auth/permissions.py` (`CATALOGUE`):
+  `projects.view`, `projects.edit`, `flows.run`, `data.query`,
+  `connections.edit`, `settings.admin`, … A role is a set of these. Every API
+  route needs one of them (a test enforces it), so a provider decides access
+  to all of SFS by answering `authorize`.
+- **A `Principal`** has an `id` (sessions and tokens point at it), a `name`
+  shown in the app, and the `permissions` it holds.
+- **Sign-in screens.** `status()` describes the sign-in methods for the
+  sign-in page (today `{"type": "password"}`); `login()` checks credentials and
+  returns the principal, and SFS starts the session. Extra endpoints (an SSO
+  callback) come from `routes()` and are mounted at `/api/auth/provider/`.
+
+Anyone holding `projects.edit` and `flows.run` can run code on the server.
+Describe roles that way: they choose who may change and run flows, they don't
+sandbox what flows do.
+
 ## Official plugin packs
 
 The **Plugins** menu installs plugins from the Sidewinder Labs catalog, on the

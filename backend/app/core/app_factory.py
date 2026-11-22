@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -11,6 +11,8 @@ from app.core.database import init_db
 from app.scheduler.scheduler import start_scheduler, stop_scheduler
 from app.api import projects, connections, execute, metadata, ws, agent, runs, custom_processors, capabilities, diagnostics, explore, plugins
 from app.api import function_library
+from app.api import auth as auth_api
+from app.auth.guard import OriginCheck, guard
 from app.api import settings as settings_api
 
 
@@ -39,6 +41,15 @@ async def lifespan(app: FastAPI):
         import logging; logging.getLogger("sfs").error("Plugin load failed: %s", _exc)
 
     await init_db()
+    # Sign-in: the provider in charge (a plugin's, or the community one)
+    # prepares itself, e.g. takes SFS_PASSWORD or prints the setup code.
+    from app.auth.providers import get_provider
+    _provider = get_provider()
+    await _provider.startup()
+    _extra = _provider.routes()
+    if _extra is not None:
+        app.include_router(_extra, prefix="/api/auth/provider", tags=["auth"],
+                           dependencies=[Depends(guard("auth"))])
     try:
         from app.engine.active_runs import close_interrupted_runs
         await close_interrupted_runs()
@@ -85,7 +96,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Sidewinder Flow Studio API",
-        version="1.41",
+        version="2.0.0",
         description="Visual Python notebook DAG with scheduling",
         lifespan=lifespan,
     )
@@ -99,20 +110,23 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Outermost: refuse cross-site state changes and WebSockets before anything runs
+    app.add_middleware(OriginCheck)
 
-    app.include_router(projects.router,    prefix="/api/projects",    tags=["projects"])
-    app.include_router(connections.router, prefix="/api/connections", tags=["connections"])
-    app.include_router(execute.router,     prefix="/api/execute",     tags=["execute"])
-    app.include_router(metadata.router,    prefix="/api/metadata",    tags=["metadata"])
-    app.include_router(agent.router,       prefix="/api/agent",       tags=["agent"])
-    app.include_router(runs.router,        prefix="/api/runs",        tags=["runs"])
-    app.include_router(custom_processors.router, prefix="/api/custom-processors", tags=["custom"])
-    app.include_router(function_library.router, prefix="/api/function-library", tags=["library"])
-    app.include_router(capabilities.router, prefix="/api/capabilities", tags=["capabilities"])
-    app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["diagnostics"])
-    app.include_router(plugins.router,     prefix="/api/plugins",     tags=["plugins"])
-    app.include_router(settings_api.router, prefix="/api/settings",   tags=["settings"])
-    app.include_router(explore.router,     prefix="/api/explore",     tags=["explore"])
+    app.include_router(projects.router, prefix="/api/projects", tags=["projects"], dependencies=[Depends(guard("projects"))])
+    app.include_router(connections.router, prefix="/api/connections", tags=["connections"], dependencies=[Depends(guard("connections"))])
+    app.include_router(execute.router, prefix="/api/execute", tags=["execute"], dependencies=[Depends(guard("execute"))])
+    app.include_router(metadata.router, prefix="/api/metadata", tags=["metadata"], dependencies=[Depends(guard("metadata"))])
+    app.include_router(agent.router, prefix="/api/agent", tags=["agent"], dependencies=[Depends(guard("agent"))])
+    app.include_router(runs.router, prefix="/api/runs", tags=["runs"], dependencies=[Depends(guard("runs"))])
+    app.include_router(custom_processors.router, prefix="/api/custom-processors", tags=["custom"], dependencies=[Depends(guard("custom_processors"))])
+    app.include_router(function_library.router, prefix="/api/function-library", tags=["library"], dependencies=[Depends(guard("function_library"))])
+    app.include_router(capabilities.router, prefix="/api/capabilities", tags=["capabilities"], dependencies=[Depends(guard("capabilities"))])
+    app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["diagnostics"], dependencies=[Depends(guard("diagnostics"))])
+    app.include_router(plugins.router, prefix="/api/plugins", tags=["plugins"], dependencies=[Depends(guard("plugins"))])
+    app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"], dependencies=[Depends(guard("settings"))])
+    app.include_router(explore.router, prefix="/api/explore", tags=["explore"], dependencies=[Depends(guard("explore"))])
+    app.include_router(auth_api.router, prefix="/api/auth", tags=["auth"], dependencies=[Depends(guard("auth"))])
     app.include_router(ws.router,          prefix="/ws",              tags=["websocket"])
     @app.get(HEALTH_PATH, include_in_schema=False)
     async def health():
@@ -121,7 +135,7 @@ def create_app() -> FastAPI:
 
     if os.getenv("SFS_DESKTOP") == "1":
         from app.api import desktop
-        app.include_router(desktop.router, prefix="/api/desktop",     tags=["desktop"])
+        app.include_router(desktop.router, prefix="/api/desktop", tags=["desktop"], dependencies=[Depends(guard("desktop"))])
 
     # Single-container and desktop mode: serve the built React app. The
     # default is backend/static (next to main.py); STATIC_DIR overrides it.

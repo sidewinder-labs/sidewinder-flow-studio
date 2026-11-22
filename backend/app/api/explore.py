@@ -27,6 +27,7 @@ from app.explore import catalog, drill, live, nodegen, sources
 from app.explore.compiler import CompileError
 from app.services.connection_service import (BROWSER_DEFAULTS, browser_settings, connection_maps,
                                              list_connections, update_connection)
+from app.auth.permissions import needs
 
 router = APIRouter()
 
@@ -239,6 +240,7 @@ def _frame_label(project_id: str, node_id: str) -> str:
 
 
 @router.post("/node")
+@needs("projects.edit")
 async def make_node(body: NodeIn, db: AsyncSession = Depends(get_db)):
     s = body.source
     try:

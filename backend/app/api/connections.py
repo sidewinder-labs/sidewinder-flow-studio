@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.services import connection_service, portability
+from app.auth.permissions import needs
 
 router = APIRouter()
 
@@ -108,6 +109,7 @@ async def delete_connection(cid: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{cid}/test")
+@needs("connections.use")
 async def test_connection(cid: str, db: AsyncSession = Depends(get_db)):
     c = await connection_service.get_connection(db, cid)
     if not c:

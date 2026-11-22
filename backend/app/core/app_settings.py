@@ -64,6 +64,10 @@ DEFS: list[Setting] = [
             "The most rows a chart query returns.", default=50_000, minimum=100),
     Setting("EXPLORE_TIMEOUT_S", "Query time limit (seconds)", "Explore", "float",
             "A chart query running longer than this is stopped.", default=30.0, minimum=1),
+    # ── Sign-in ──
+    Setting("SFS_SESSION_IDLE_HOURS", "Sign out after idle (hours)", "Sign-in", "float",
+            "A browser that hasn't used SFS for this long must sign in again. "
+            "Sessions also end after 30 days, however active.", default=12.0, minimum=0.1),
     # ── Notifications (failure alerts of scheduled runs) ──
     Setting("SLACK_WEBHOOK_URL", "Slack webhook URL", "Failure alerts", "secret",
             "Scheduled runs that fail post here. Blank: no Slack alerts."),

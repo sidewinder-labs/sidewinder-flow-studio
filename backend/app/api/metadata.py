@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from app.core.database import get_db
 from app.models.variable import Variable
+from app.auth.permissions import needs
 
 router = APIRouter()
 
@@ -41,6 +42,7 @@ async def delete_var(vid: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/frame-columns")
+@needs("data.view")
 async def frame_columns(project_id: str, node_id: str):
     """Column names (and dtypes) of a node's cached output frame.
 

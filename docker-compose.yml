@@ -22,6 +22,11 @@ services:
       # SQLite by default; set METADATA_DB_URL in .env to use PostgreSQL,
       # e.g. postgresql+psycopg://user:pass@postgres:5432/flowstudio
       METADATA_DB_URL: "${METADATA_DB_URL:-sqlite+aiosqlite:////data/flow_studio.db}"
+      # Sign-in. Blank SFS_PASSWORD: set one in the browser with the setup code
+      # printed by `docker compose logs backend`. SFS_AUTH=none turns sign-in
+      # off; only do that behind a proxy that does its own sign-in.
+      SFS_PASSWORD: "${SFS_PASSWORD:-}"
+      SFS_AUTH: "${SFS_AUTH:-password}"
     volumes:
       - flow_data:/data                    # persists projects, cache, DB
     # Makes host.docker.internal resolve to the host machine on Linux
@@ -66,6 +71,7 @@ services:
       - "${REPORTS_PORT:-8501}:8501"       # dashboards at http://localhost:8501
     environment:
       REPORTS_DB: "/data/reports_data/reports.duckdb"
+      SFS_API_URL: "http://backend:8000"   # checks the viewer is signed in to SFS
     volumes:
       - flow_data:/data:ro                 # read-only — backend is the single writer
     networks:

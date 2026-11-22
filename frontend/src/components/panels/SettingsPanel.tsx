@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Lock, Power, RotateCcw } from 'lucide-react'
 import { api, type AppSetting, type SettingsView } from '@/utils/api'
 import { setThemeChoice, useThemeChoice, type ThemeChoice } from '@/hooks/useTheme'
+import { SecuritySettings } from '@/components/auth/SecuritySettings'
 
 /** Meta → Settings: SFS settings edited in the app, no config file needed.
  *  A value set by the environment wins and is shown locked; secrets are never
@@ -55,6 +56,7 @@ export function SettingsPanel() {
   return (
     <div className="space-y-3 text-xs">
       <Appearance />
+      <SecuritySettings />
       <MemoryCard m={v.memory} />
 
       {v.restart_needed.length > 0 && (

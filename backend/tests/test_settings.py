@@ -99,7 +99,7 @@ def test_settings_api(data, monkeypatch):
     app.include_router(api.router, prefix="/api/settings")
     c = TestClient(app)
     v = c.get("/api/settings/").json()
-    assert {g["group"] for g in v["settings"]} == {"Memory & performance", "Explore", "Failure alerts"}
+    assert {g["group"] for g in v["settings"]} == {"Memory & performance", "Explore", "Sign-in", "Failure alerts"}
     assert v["memory"]["total"] and v["memory"]["budget"]
     r = c.put("/api/settings/", json={"values": {"EXPLORE_ROW_CAP": "5"}})
     assert r.status_code == 400 and "EXPLORE_ROW_CAP" in r.json()["detail"]["errors"]

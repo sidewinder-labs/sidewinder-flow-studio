@@ -131,10 +131,14 @@ rather than leaving you to discover them.
 executed with normal Python available: it can read the filesystem, make network
 calls, read `.env`, and decrypt any stored connection credentials. Per-node
 scopes isolate *variable names*, not permissions — it is not a security sandbox.
-Authentication (planned) will not change this: any user allowed to edit a flow is
-effectively trusted with the backend host. **Treat flow-edit access as equivalent
-to shell access.** Run SFS for trusted developers, on isolated infrastructure,
-with narrowly scoped database credentials — not as an open shared service.
+
+**The server edition asks for a password** (set on first run; see
+[Signing in](docs/INSTALLATION.md#signing-in)). A password decides who gets in,
+not what they can do: anyone with it can still run arbitrary code on the host.
+**Treat flow-edit access as equivalent to shell access.** Run SFS for trusted
+developers, on isolated infrastructure, with narrowly scoped database
+credentials — not as an open shared service — and put it behind HTTPS (a reverse
+proxy such as Caddy or Traefik) for anything beyond localhost.
 
 **Data larger than RAM: engine-dependent.** DuckDB scans the cached Arrow file
 from disk — projecting only the columns a query touches and spilling to disk

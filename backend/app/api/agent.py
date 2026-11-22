@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.frame_cache import has_frame, load_frame_head
 from app.services.agent_service import generate_code
 from app.services import agent_provider_service as provider_svc
+from app.auth.permissions import needs
 
 router = APIRouter()
 
@@ -90,11 +91,13 @@ async def list_providers(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/providers", status_code=201)
+@needs("settings.admin")
 async def create_provider(body: ProviderIn, db: AsyncSession = Depends(get_db)):
     return _provider_out(await provider_svc.create_provider(db, body.model_dump()))
 
 
 @router.put("/providers/{pid}")
+@needs("settings.admin")
 async def update_provider(pid: str, body: ProviderUpdate, db: AsyncSession = Depends(get_db)):
     p = await provider_svc.update_provider(db, pid, body.model_dump(exclude_none=False))
     if not p:
@@ -103,6 +106,7 @@ async def update_provider(pid: str, body: ProviderUpdate, db: AsyncSession = Dep
 
 
 @router.post("/providers/{pid}/activate")
+@needs("settings.admin")
 async def activate_provider(pid: str, db: AsyncSession = Depends(get_db)):
     if not await provider_svc.set_active(db, pid):
         raise HTTPException(404, "Not found")
@@ -110,6 +114,7 @@ async def activate_provider(pid: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/providers/{pid}/test")
+@needs("settings.admin")
 async def test_provider(pid: str, db: AsyncSession = Depends(get_db)):
     p = await provider_svc.get_provider(db, pid)
     if not p:
@@ -118,6 +123,7 @@ async def test_provider(pid: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/providers/{pid}", status_code=204)
+@needs("settings.admin")
 async def delete_provider(pid: str, db: AsyncSession = Depends(get_db)):
     if not await provider_svc.delete_provider(db, pid):
         raise HTTPException(404, "Not found")

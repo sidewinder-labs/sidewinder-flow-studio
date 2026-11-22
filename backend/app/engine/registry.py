@@ -324,6 +324,14 @@ class RegistryAPI:
         spec.source = self._source
         register_engine(spec, override=override)
 
+    def register_auth_provider(self, provider) -> None:
+        """Take over sign-in and permissions: `provider` subclasses
+        app.auth.providers.AuthProvider. Sessions, API tokens, the route guard
+        and rate limiting stay SFS's; the provider decides who is signed in
+        and what each permission in app.auth.permissions.CATALOGUE allows."""
+        from app.auth.providers import set_provider
+        set_provider(provider)
+
     def register_example(self, *, name: str, flow: dict, description: str = "") -> None:
         """Ship a ready-made flow: {name?, nodes, edges, imports?} in the saved
         project format. Users start a new project from it."""

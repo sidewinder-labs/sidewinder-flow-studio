@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services import function_library as lib
+from app.auth.permissions import needs
 
 router = APIRouter()
 
@@ -97,6 +98,7 @@ def delete(entry_id: str):
 
 
 @router.post("/functions")
+@needs("library.view")
 def functions_in(body: FlowText):
     """The flow's top-level functions, with each library copy's state."""
     try:
@@ -110,6 +112,7 @@ def functions_in(body: FlowText):
 
 
 @router.post("/propose-imports")
+@needs("library.view")
 def propose(body: ProposeIn):
     try:
         return {"imports": lib.propose_imports(body.code, body.flow_imports)}
@@ -118,6 +121,7 @@ def propose(body: ProposeIn):
 
 
 @router.post("/insert")
+@needs("projects.edit")
 def insert(body: InsertIn):
     try:
         return lib.insert(functions=body.functions, imports=body.imports, provenance=body.provenance,
@@ -127,6 +131,7 @@ def insert(body: InsertIn):
 
 
 @router.post("/update-copy")
+@needs("projects.edit")
 def update_copy(body: UpdateCopyIn):
     try:
         return lib.update_copy(functions=body.functions, imports=body.imports,

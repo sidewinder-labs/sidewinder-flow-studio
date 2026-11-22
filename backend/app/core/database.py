@@ -12,7 +12,7 @@ class Base(DeclarativeBase):
 
 async def init_db():
     async with engine.begin() as conn:
-        from app.models import connection as _c, variable as _v, agent_provider as _ap, run_history as _rh  # noqa
+        from app.models import connection as _c, variable as _v, agent_provider as _ap, run_history as _rh, auth as _au  # noqa
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
         from app.services.connection_service import encrypt_plaintext_extras

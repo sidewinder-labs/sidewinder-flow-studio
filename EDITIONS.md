@@ -147,9 +147,12 @@ Rows marked *Core (open)* are open-core work that enterprise builds on.
 | **Licensing** — Ed25519 offline-signed keys, expiry/features, evaluation licences | ✅ | Enterprise | `sfs-enterprise`; verifies offline; perpetual = `expires:null`; unlicensed engines register as placeholders. Seats not enforced (offline). |
 | **TM1 modeling** — dimension builder, rules and feeders as versioned text, TurboIntegrator | ✅ | Enterprise | `sfs-plugin-tm1-modeling` in `sfs-enterprise`. |
 | **Power BI operations** — multi-model orchestration, refresh history | ✅ | Enterprise | `sfs-plugin-powerbi-ops`; partition management over XMLA evaluated, not built. |
-| **Auth — local** (argon2 + JWT), login, WS token validation | ⬜ | Enterprise | Auth interface with a no-op default in open core; implementation in the plugin. |
-| **Auth — SSO/OIDC** (Azure AD etc.) | ⬜ | Enterprise | The #1 enterprise procurement ask. |
-| **RBAC** (viewer/editor/admin; viewers see reports only) | ⬜ | Enterprise | Pairs with reports. |
+| **Sign-in — protecting the instance**: one password (first-run setup code or `SFS_PASSWORD`), API tokens, session timeout and sign-out, rate limiting, server-side reset; WebSocket, Explore and the reports viewer covered; cross-site requests refused | ✅ | Core (open) | `app/auth/`. Basic safety, not a paid feature: node code is shell-equivalent. |
+| **Auth interface** — replaceable providers, permission catalogue, every route guarded | ✅ | Core (open) | `api.register_auth_provider()`; `app/auth/permissions.py`; docs/PLUGINS.md "Sign-in providers". |
+| **User accounts** — several people with their own sign-in | ⬜ | Enterprise | A provider on the auth interface; reuses core's sessions and tokens. |
+| **Auth — SSO** (Entra ID, Okta, Google; OIDC/SAML) | ⬜ | Enterprise | The #1 enterprise procurement ask. Extra endpoints through the provider's `routes()`. |
+| **RBAC** (viewer / editor / admin; per-project permissions) | ⬜ | Enterprise | Roles are sets of catalogue permissions; edit access stays equivalent to shell access. |
+| **Audit log** — who signed in, changed and ran what | ⬜ | Enterprise | Builds on the principal each request carries. |
 | **Isolated plugin runtime** — separate venv per plugin, Arrow file handoff | ✅ | Core (open) | DONE — `app/engine/runtime.py`, exposed to plugins as `api.run_isolated()`. |
 | **Worker queue scaling** — Celery/RQ workers, Postgres metadata, shared frame store | ⬜ | Enterprise (plugin + infra) | Distributed execution across machines and concurrent users — distinct from the free single-machine parallelism. |
 | **Vector/MCP semantic catalog** — profile tables + DAG lineage → catalog → expose as MCP server for AI tools | ⬜ | Enterprise | Flagship AI-native differentiator. |
