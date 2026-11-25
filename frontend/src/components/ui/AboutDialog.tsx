@@ -8,7 +8,7 @@ import { useFeatures } from '@/utils/engines'
 import { api, type DesktopInfo } from '@/utils/api'
 import { DataLocations } from '@/components/desktop/DataLocations'
 
-export const SFS_VERSION = '2.0.0'
+export const SFS_VERSION = '2.0.1'
 
 export function AboutDialog({ onClose }: { onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)

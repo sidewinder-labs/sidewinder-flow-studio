@@ -96,7 +96,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Sidewinder Flow Studio API",
-        version="2.0.0",
+        version="2.0.1",
         description="Visual Python notebook DAG with scheduling",
         lifespan=lifespan,
     )
